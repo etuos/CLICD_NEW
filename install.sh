@@ -1650,25 +1650,53 @@ EOF
 
     # 确保 TUN 设备可用（WireGuard / WireGuard 出口隧道需要）
     log "正在确保 TUN 设备可用..."
-    if [ ! -e /dev/net/tun ]; then
-        modprobe tun >/dev/null 2>&1 || true
+
+    tun_module_loaded() {
+        if [ -d /sys/module/tun ]; then
+            return 0
+        fi
+        if [ -r /proc/modules ]; then
+            awk '$1=="tun"{found=1} END{exit !found}' /proc/modules && return 0
+        fi
+        return 1
+    }
+
+    # 1) 内核模块必须真正加载（/dev/net/tun 节点存在不代表模块已加载）
+    if tun_module_loaded; then
+        log "tun 内核模块已加载。"
+    else
+        modprobe_err="$(modprobe tun 2>&1)" && log "已加载内核模块 tun。" || {
+            # 尝试直接加载 ko（部分环境 modprobe 配置受限）
+            ko="$(find /lib/modules/"$(uname -r)"/ -name 'tun.ko*' 2>/dev/null | head -n 1)"
+            if [ -n "$ko" ] && insmod "$ko" 2>/dev/null; then
+                log "已加载内核模块 tun（insmod $ko）。"
+            else
+                warn "无法加载 tun 内核模块：${modprobe_err:-modprobe/insmod 均失败}。若在容器/受限环境中，请在宿主机执行 modprobe tun 后重试。"
+            fi
+        }
     fi
 
-    if [ ! -e /dev/net/tun ] && [ -d /dev/net ]; then
+    # 2) 设备节点（模块加载后通常由 udev 创建；无 udev 环境则手动 mknod）
+    if [ ! -e /dev/net/tun ]; then
+        [ -d /dev/net ] || mkdir -p /dev/net
         mknod /dev/net/tun c 10 200 >/dev/null 2>&1 || true
         chmod 0660 /dev/net/tun >/dev/null 2>&1 || true
     fi
 
+    # 3) 持久化：重启后自动加载
     if [ -d /etc/modules-load.d ]; then
         echo "tun" > /etc/modules-load.d/clicd-tun.conf
     elif [ -f /etc/modules ]; then
         grep -qx "tun" /etc/modules 2>/dev/null || echo "tun" >> /etc/modules
     fi
 
-    if [ -e /dev/net/tun ]; then
-        log "TUN 设备已就绪 (/dev/net/tun)。"
+    # 4) 结果校验：以"模块是否加载"为准，避免节点存在但模块缺失的假就绪
+    if tun_module_loaded && [ -e /dev/net/tun ]; then
+        log "TUN 就绪：模块已加载，设备 /dev/net/tun 可用。"
+    elif [ -e /dev/net/tun ]; then
+        warn "存在 /dev/net/tun 但未确认 tun 模块已加载。WireGuard 隧道可能不可用；若需要请在宿主机执行：modprobe tun"
     else
-        warn "未检测到 /dev/net/tun，WireGuard 隧道功能可能不可用。"
+        warn "TUN 不可用：未加载 tun 模块且无 /dev/net/tun。WireGuard 隧道功能将不可用。"
     fi
 
     if has_cmd wg-quick; then
