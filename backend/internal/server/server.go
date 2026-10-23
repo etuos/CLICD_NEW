@@ -147,6 +147,10 @@ func setupRoutes(mux *http.ServeMux) {
 		api.HandleSwapManage(w, r)
 	})))
 
+	mux.HandleFunc("/api/v1/tunnel", corsMiddleware(api.AuthMiddleware(api.HandleTunnel)))
+	// UI entry point (admin session). External API key clients use /api/v1/tunnel.
+	mux.HandleFunc("/api/tunnel", corsMiddleware(api.AdminMiddleware(api.HandleTunnel)))
+
 	// Version (public)
 	mux.HandleFunc("/api/version", corsMiddleware(api.HandleVersion))
 

@@ -109,6 +109,8 @@ const scopeGroups = [
       ['security:settings', '安全设置'],
       ['swap:read', 'Swap 信息'],
       ['swap:manage', 'Swap 管理'],
+      ['tunnel:read', '隧道状态'],
+      ['tunnel:manage', '隧道管理'],
       ['subuser:read', '子用户列表'],
       ['subuser:create', '创建子用户'],
       ['subuser:update', '更新子用户'],
@@ -132,6 +134,7 @@ const defaultReadScopes = [
   'routing:read',
   'ipv6:read',
   'host:read',
+  'tunnel:read',
 ]
 
 const endpointGroups: Array<{ title: string; endpoints: EndpointTuple[] }> = [
@@ -213,6 +216,8 @@ const endpointGroups: Array<{ title: string; endpoints: EndpointTuple[] }> = [
       ['PUT', '/api/v1/security/settings', '更新安全设置'],
       ['GET', '/api/v1/swap', 'Swap 信息'],
       ['POST', '/api/v1/swap', '调整 Swap'],
+      ['GET', '/api/v1/tunnel', 'WireGuard 隧道状态'],
+      ['POST', '/api/v1/tunnel', '管理隧道（创建/启停/Peer）'],
       ['POST', '/api/v1/batch-create', '批量创建容器'],
       ['POST', '/api/v1/batch-action', '批量开关机/删除/重装'],
       ['POST', '/api/v1/ssh-ticket', '创建 WebSSH 票据'],
@@ -933,6 +938,7 @@ const requestBodySamples: Record<string, Record<string, unknown>> = {
   },
   'PUT /api/v1/security/settings': { auto_shutdown: false },
   'POST /api/v1/swap': { action: 'resize', size_mb: 16384 },
+  'POST /api/v1/tunnel': { action: 'create', address: '10.250.250.1/24', listen_port: 51820, dns: '1.1.1.1' },
   'POST /api/v1/batch-create': {
     containers: [
       {
@@ -1326,6 +1332,8 @@ const responseSamples: Record<string, unknown> = {
   'PUT /api/v1/security/settings': { success: true, data: { auto_shutdown: false } },
   'GET /api/v1/swap': { success: true, data: { total_mb: 16383, used_mb: 0, free_mb: 16383, enabled: true, swap_file: '/swapfile' } },
   'POST /api/v1/swap': { success: true, message: 'SWAP adjusted to 16384 MB', data: { total_mb: 16383, used_mb: 0, free_mb: 16383, enabled: true, swap_file: '/swapfile' } },
+  'GET /api/v1/tunnel': { success: true, data: { name: 'wg0', interface: 'wg0', enabled: true, active: true, address: '10.250.250.1/24', listen_port: 51820, mtu: 1420, dns: '1.1.1.1', private_key: 'abc1****def0', public_key: 'XqL2...tU8=', peers: [{ public_key: 'kP9...vA3=', allowed_ips: '0.0.0.0/0, ::/0', endpoint: '1.2.3.4:51820', last_handshake: 1734567890, rx_bytes: 123456, tx_bytes: 654321 }], config_path: '/etc/wireguard/wg0.conf', wireguard_installed: true, tun_available: true } },
+  'POST /api/v1/tunnel': { success: true, message: 'WireGuard 隧道配置已生成', data: { name: 'wg0', enabled: true, active: false, address: '10.250.250.1/24', listen_port: 51820, peers: [], config_path: '/etc/wireguard/wg0.conf', wireguard_installed: true, tun_available: true } },
   'POST /api/v1/batch-create': { success: true, data: ['task-12'] },
   'POST /api/v1/batch-action': { success: true, data: ['task-13'] },
   'POST /api/v1/ssh-ticket': { success: true, data: { ticket: '***60-second valid ticket***' } },

@@ -49,6 +49,7 @@ var defaultApiKeyScopes = []string{
 	"routing:read",
 	"ipv6:read",
 	"host:read",
+	"tunnel:read",
 }
 
 // HandleApiKeys handles GET (list) and POST (create) for API keys

@@ -1605,6 +1605,35 @@ EOF
 
     modprobe br_netfilter >/dev/null 2>&1 || true
     sysctl --system >/dev/null 2>&1 || true
+
+    # 确保 TUN 设备可用（WireGuard / WireGuard 出口隧道需要）
+    log "正在确保 TUN 设备可用..."
+    if [ ! -e /dev/net/tun ]; then
+        modprobe tun >/dev/null 2>&1 || true
+    fi
+
+    if [ ! -e /dev/net/tun ] && [ -d /dev/net ]; then
+        mknod /dev/net/tun c 10 200 >/dev/null 2>&1 || true
+        chmod 0660 /dev/net/tun >/dev/null 2>&1 || true
+    fi
+
+    if [ -d /etc/modules-load.d ]; then
+        echo "tun" > /etc/modules-load.d/clicd-tun.conf
+    elif [ -f /etc/modules ]; then
+        grep -qx "tun" /etc/modules 2>/dev/null || echo "tun" >> /etc/modules
+    fi
+
+    if [ -e /dev/net/tun ]; then
+        log "TUN 设备已就绪 (/dev/net/tun)。"
+    else
+        warn "未检测到 /dev/net/tun，WireGuard 隧道功能可能不可用。"
+    fi
+
+    if has_cmd wg-quick; then
+        log "已检测到 wireguard-tools，隧道管理功能可用。"
+    else
+        warn "未检测到 wg / wg-quick，如需使用 WireGuard 隧道请安装 wireguard-tools。"
+    fi
 }
 
 configure_firewall_rules() {

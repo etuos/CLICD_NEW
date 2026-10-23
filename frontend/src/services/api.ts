@@ -1075,4 +1075,52 @@ export const updateLanguage = (language: PanelLanguage) =>
 export const getVersion = () =>
   api.get<APIResponse<{ version: string }>>('/version')
 
+// Tunnels (host-side WireGuard exit tunnel)
+export interface TunnelPeer {
+  public_key: string
+  allowed_ips: string
+  persistent_keepalive?: string
+  endpoint?: string
+  comment?: string
+  last_handshake: number
+  rx_bytes: number
+  tx_bytes: number
+}
+
+export interface TunnelStatus {
+  name: string
+  interface: string
+  enabled: boolean
+  active: boolean
+  address: string
+  listen_port: number
+  mtu: number
+  dns: string
+  private_key: string
+  public_key: string
+  peers: TunnelPeer[]
+  config_path: string
+  wireguard_installed: boolean
+  tun_available: boolean
+  nat_subnet?: string
+}
+
+export interface TunnelActionPayload {
+  action: 'status' | 'create' | 'enable' | 'disable' | 'reload' | 'sync' | 'add_peer' | 'remove_peer' | 'reset_key' | 'delete'
+  listen_port?: number
+  address?: string
+  mtu?: number
+  dns?: string
+  peer_pub_key?: string
+  peer_allowed_ips?: string
+  peer_name?: string
+  peer_endpoint?: string
+}
+
+export const getTunnelStatus = () =>
+  api.get<APIResponse<TunnelStatus>>('/tunnel')
+
+export const manageTunnel = (payload: TunnelActionPayload) =>
+  api.post<APIResponse<TunnelStatus>>('/tunnel', payload)
+
 export default api
