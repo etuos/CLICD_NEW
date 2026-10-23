@@ -11,6 +11,41 @@ INSTALL_DOWNLOAD_MARKER="${CLICD_INSTALL_DOWNLOAD_MARKER:-/tmp/clicd-install-dir
 LIBVIRT_DEFAULT_MARKER="/var/lib/clicd/kvm/default-network.created"
 CLICD_NETWORK_ENV="/etc/clicd/network.env"
 
+# 同时只允许一个安装/卸载实例运行，避免两个进程抢 dpkg 锁。
+# 需 root；非 root 时跳过锁（后续权限检查会拦下）。
+if [ "$(id -u)" -eq 0 ] 2>/dev/null && command -v flock >/dev/null 2>&1; then
+    CLICD_RUN_LOCK="${CLICD_RUN_LOCK:-/var/lock/clicd-install.lock}"
+    mkdir -p "$(dirname "$CLICD_RUN_LOCK")" 2>/dev/null || true
+    exec 9>"$CLICD_RUN_LOCK"
+    if ! flock -n -w 600 9; then
+        echo "[clicd][错误] 检测到另一个安装/卸载进程正在运行（$CLICD_RUN_LOCK 被占用），已等待超时退出。" >&2
+        echo "[clicd][错误] 请等待该进程结束后重试，或删除锁文件：rm -f $CLICD_RUN_LOCK" >&2
+        exit 1
+    fi
+fi
+
+# apt 等待 dpkg 锁的最长时间（秒）。等待期间 apt 会自动重试。
+CLICD_DPKG_LOCK_TIMEOUT="${CLICD_DPKG_LOCK_TIMEOUT:-600}"
+
+# 等待 dpkg 前端锁释放，避免与 unattended-upgrades 等后台 apt 进程冲突。
+# 兼容旧版 apt（无 DPkg::Lock::Timeout）时退化为轮询等待。
+wait_for_dpkg_lock() {
+    lock="/var/lib/dpkg/lock-frontend"
+    [ -e "$lock" ] || return 0
+    waited=0
+    while [ "$waited" -lt "$CLICD_DPKG_LOCK_TIMEOUT" ]; do
+        # fuser 可判断文件是否被占用；不可用则用 lsof，都没有就退化为短等待。
+        if command -v fuser >/dev/null 2>&1; then
+            fuser "$lock" >/dev/null 2>&1 && { sleep 5; waited=$((waited+5)); continue; } || break
+        elif command -v lsof >/dev/null 2>&1; then
+            lsof "$lock" >/dev/null 2>&1 && { sleep 5; waited=$((waited+5)); continue; } || break
+        else
+            sleep 2; waited=$((waited+2)); continue
+        fi
+    done
+    return 0
+}
+
 normalize_clicd_arch() {
     arch="$1"
     case "$(printf '%s' "$arch" | tr 'A-Z' 'a-z')" in
@@ -1080,8 +1115,15 @@ install_apk() {
 install_apt() {
     log "正在使用 apt 安装依赖..."
     export DEBIAN_FRONTEND=noninteractive
-    apt-get update
-    apt-get install -y \
+    # 等待可能占用 dpkg 锁的后台进程（如 unattended-upgrades）。
+    log "等待 dpkg 锁释放..."
+    wait_for_dpkg_lock
+    # DPkg::Lock::Timeout 让 apt 自身也具备等待能力（apt >= 1.1）。
+    apt_get() {
+        apt-get -o DPkg::Lock::Timeout="$CLICD_DPKG_LOCK_TIMEOUT" "$@"
+    }
+    apt_get update
+    apt_get install -y \
         ca-certificates \
         curl \
         wget \
@@ -1103,7 +1145,7 @@ install_apt() {
         dnsmasq-base
 
     if kvm_supported_arch; then
-        apt-get install -y \
+        apt_get install -y \
             "$(qemu_system_package_apt)" \
             qemu-utils \
             libvirt-daemon-system \
@@ -1115,10 +1157,10 @@ install_apt() {
             virtinst \
             "$(qemu_efi_package_apt)"
         # qemu-kvm is a transitional/virtual package in newer Ubuntu/Debian releases; try installing optionally without blocking
-        apt-get install -y qemu-kvm >/dev/null 2>&1 || true
+        apt_get install -y qemu-kvm >/dev/null 2>&1 || true
     else
         warn_kvm_unsupported_arch
-        apt-get install -y qemu-utils genisoimage xorriso smartmontools >/dev/null 2>&1 || true
+        apt_get install -y qemu-utils genisoimage xorriso smartmontools >/dev/null 2>&1 || true
     fi
 }
 
