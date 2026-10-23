@@ -26,13 +26,13 @@ Example response:
 The installer uses the latest release by default:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MengMengCode/CLICD/main/install.sh | sudo sh
+curl -fsSL https://raw.githubusercontent.com/etuos/CLICD_NEW/main/install.sh | sudo sh
 ```
 
 Install a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MengMengCode/CLICD/main/install.sh | sudo CLICD_VERSION=v1.1.6 sh
+curl -fsSL https://raw.githubusercontent.com/etuos/CLICD_NEW/main/install.sh | sudo CLICD_VERSION=v1.1.6 sh
 ```
 
 ## Pre-upgrade Checklist

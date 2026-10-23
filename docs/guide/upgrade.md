@@ -26,13 +26,13 @@ curl http://127.0.0.1:8999/api/version
 安装脚本默认使用最新 Release：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MengMengCode/CLICD/main/install.sh | sudo sh
+curl -fsSL https://raw.githubusercontent.com/etuos/CLICD_NEW/main/install.sh | sudo sh
 ```
 
 指定版本：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MengMengCode/CLICD/main/install.sh | sudo CLICD_VERSION=v1.1.6 sh
+curl -fsSL https://raw.githubusercontent.com/etuos/CLICD_NEW/main/install.sh | sudo CLICD_VERSION=v1.1.6 sh
 ```
 
 ## 升级前检查

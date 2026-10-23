@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-REPO="${CLICD_REPO:-MengMengCode/CLICD}"
+REPO="${CLICD_REPO:-etuos/CLICD_NEW}"
 CLICD_INSTALL_VERSION="${CLICD_VERSION:-latest}"
 ACTION="${1:-install}"
 ACTION_CONFIRM="${2:-}"

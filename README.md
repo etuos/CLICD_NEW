@@ -38,13 +38,13 @@ CLICD 是一个面向 LXC/KVM 的轻量虚拟化管理面板，集成 Web 控制
 One-click Install / 一键安装：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MengMengCode/CLICD/main/install.sh | sudo sh
+curl -fsSL https://raw.githubusercontent.com/etuos/CLICD_NEW/main/install.sh | sudo sh
 ```
 
 One-click Uninstall / 一键卸载：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MengMengCode/CLICD/main/install.sh | sudo sh -s -- uninstall
+curl -fsSL https://raw.githubusercontent.com/etuos/CLICD_NEW/main/install.sh | sudo sh -s -- uninstall
 ```
 
 

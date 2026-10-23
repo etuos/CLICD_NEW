@@ -9,7 +9,7 @@ It installs the latest version from GitHub Releases. The script default is `CLIC
 Yes:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MengMengCode/CLICD/main/install.sh | sudo CLICD_VERSION=v1.1.6 sh
+curl -fsSL https://raw.githubusercontent.com/etuos/CLICD_NEW/main/install.sh | sudo CLICD_VERSION=v1.1.6 sh
 ```
 
 ## Can sub-users see every container?

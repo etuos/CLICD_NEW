@@ -39,7 +39,7 @@ function clicd_MetaData()
     return [
         'DisplayName' => 'CLICD 对接模块 by 欢-Huan and ChatGPT 5.5 and DeepSeek V4',
         'APIVersion'  => '1.1',
-        'HelpDoc'     => 'https://github.com/MengMengCode/CLICD',
+        'HelpDoc'     => 'https://github.com/etuos/CLICD_NEW',
         'version'     => '1.0.11',
     ];
 }

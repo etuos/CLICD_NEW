@@ -9,7 +9,7 @@
 可以：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MengMengCode/CLICD/main/install.sh | sudo CLICD_VERSION=v1.1.6 sh
+curl -fsSL https://raw.githubusercontent.com/etuos/CLICD_NEW/main/install.sh | sudo CLICD_VERSION=v1.1.6 sh
 ```
 
 ## 子用户能看到全部容器吗？

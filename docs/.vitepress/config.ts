@@ -160,7 +160,7 @@ export default defineConfig({
       provider: 'local',
     },
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/MengMengCode/CLICD' },
+      { icon: 'github', link: 'https://github.com/etuos/CLICD_NEW' },
     ],
     footer: {
       message: 'CLICD 文档面向部署、使用、运维和二次开发场景。',

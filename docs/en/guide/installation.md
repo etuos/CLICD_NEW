@@ -14,7 +14,7 @@ CLICD provides a one-line installer. By default, it installs the latest version 
 ## Install the Latest Version
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MengMengCode/CLICD/main/install.sh | sudo sh
+curl -fsSL https://raw.githubusercontent.com/etuos/CLICD_NEW/main/install.sh | sudo sh
 ```
 
 The installer asks for separate LXC and KVM NAT private subnets. Press Enter to scan host routes, interfaces, bridges, and libvirt networks and select non-overlapping RFC1918 `/24` networks, or enter a CIDR such as `172.28.40.0/24`. For unattended installation, set `CLICD_LXC_SUBNET` and `CLICD_KVM_SUBNET`.
@@ -24,7 +24,7 @@ The script defaults to `CLICD_VERSION=latest` and downloads `clicd-linux-amd64.t
 ## Install a Specific Version
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MengMengCode/CLICD/main/install.sh | sudo CLICD_VERSION=v1.1.6 sh
+curl -fsSL https://raw.githubusercontent.com/etuos/CLICD_NEW/main/install.sh | sudo CLICD_VERSION=v1.1.6 sh
 ```
 
 Replace `v1.1.6` with the release tag you want to install.
@@ -42,7 +42,7 @@ Use the administrator credentials printed by the installer for the first login. 
 ## Uninstall
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MengMengCode/CLICD/main/install.sh | sudo sh -s -- uninstall
+curl -fsSL https://raw.githubusercontent.com/etuos/CLICD_NEW/main/install.sh | sudo sh -s -- uninstall
 ```
 
 Before uninstalling, decide whether you need to keep containers, image cache, database files, or configuration files.

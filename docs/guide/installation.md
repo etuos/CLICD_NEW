@@ -14,7 +14,7 @@ CLICD 提供一键安装脚本。脚本默认安装 GitHub Releases 的最新版
 ## 安装最新版本
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MengMengCode/CLICD/main/install.sh | sudo sh
+curl -fsSL https://raw.githubusercontent.com/etuos/CLICD_NEW/main/install.sh | sudo sh
 ```
 
 安装器会分别询问 LXC 与 KVM 的 NAT 私网网段。直接回车时，脚本会扫描宿主机路由、网卡、网桥和 libvirt 网络，自动选择未冲突的 RFC1918 `/24` 网段；也可以输入 `172.28.40.0/24` 这类 CIDR。非交互安装可设置 `CLICD_LXC_SUBNET` 和 `CLICD_KVM_SUBNET`。
@@ -24,7 +24,7 @@ curl -fsSL https://raw.githubusercontent.com/MengMengCode/CLICD/main/install.sh 
 ## 安装指定版本
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MengMengCode/CLICD/main/install.sh | sudo CLICD_VERSION=v1.1.6 sh
+curl -fsSL https://raw.githubusercontent.com/etuos/CLICD_NEW/main/install.sh | sudo CLICD_VERSION=v1.1.6 sh
 ```
 
 把 `v1.1.6` 替换成需要安装的 Release 标签即可。
@@ -42,7 +42,7 @@ http://YOUR_SERVER_IP:8999
 ## 卸载
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MengMengCode/CLICD/main/install.sh | sudo sh -s -- uninstall
+curl -fsSL https://raw.githubusercontent.com/etuos/CLICD_NEW/main/install.sh | sudo sh -s -- uninstall
 ```
 
 卸载前请确认是否需要保留容器、镜像缓存、数据库和配置文件。
