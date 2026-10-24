@@ -55,6 +55,8 @@ type TunnelStatus struct {
 	ConfigPath         string       `json:"config_path"`
 	WireGuardInstalled bool         `json:"wireguard_installed"`
 	TunAvailable       bool         `json:"tun_available"`
+	WireGuardModule    bool         `json:"wireguard_module"`
+	KernelReady        bool         `json:"kernel_ready"`
 	NATSubnet          string       `json:"nat_subnet,omitempty"`
 }
 
@@ -108,6 +110,11 @@ func runTunnelAction(req tunnelActionRequest) (string, error) {
 	switch req.Action {
 	case "status":
 		return "隧道状态已获取", nil
+	case "load_modules":
+		if err := ensureWireguardKernel(); err != nil {
+			return "", err
+		}
+		return "内核模块已就绪（wireguard 或 tun 可用）", nil
 	case "create":
 		return "WireGuard 隧道配置已生成", createTunnel(req)
 	case "enable":
@@ -136,13 +143,18 @@ func runTunnelAction(req tunnelActionRequest) (string, error) {
 // ---------------------------------------------------------------------------
 
 func getTunnelStatus() TunnelStatus {
+	wgMod := kernelModuleAvailable("wireguard")
+	tunMod := kernelModuleLoaded("tun")
 	status := TunnelStatus{
 		Name:               wgIfName,
 		Interface:          wgIfName,
 		ConfigPath:         wgConfPath,
 		Peers:              []TunnelPeer{},
 		WireGuardInstalled: hasCmd("wg") && hasCmd("wg-quick"),
-		TunAvailable:       hasFile("/dev/net/tun"),
+		TunAvailable:       tunMod || hasFile("/dev/net/tun"),
+		WireGuardModule:    wgMod,
+		// 内核 WireGuard 不依赖 tun；若仅装了 userspace wg-go 则需 tun。
+		KernelReady: wgMod || tunMod || hasFile("/dev/net/tun"),
 	}
 
 	if data, err := os.ReadFile(wgConfPath); err == nil {
@@ -281,8 +293,8 @@ func mergeWgShow(status *TunnelStatus) {
 // ---------------------------------------------------------------------------
 
 func createTunnel(req tunnelActionRequest) error {
-	if !hasFile("/dev/net/tun") {
-		return fmt.Errorf("/dev/net/tun 不可用，请先加载内核 tun 模块（modprobe tun）")
+	if err := ensureWireguardKernel(); err != nil {
+		return err
 	}
 	if !hasCmd("wg") || !hasCmd("wg-quick") {
 		return fmt.Errorf("未检测到 wg / wg-quick，请先安装 wireguard-tools（Debian/Ubuntu: apt install wireguard-tools；Alpine: apk add wireguard-tools）")
@@ -340,6 +352,9 @@ func createTunnel(req tunnelActionRequest) error {
 }
 
 func enableTunnel() error {
+	if err := ensureWireguardKernel(); err != nil {
+		return err
+	}
 	if !hasFile(wgConfPath) {
 		return fmt.Errorf("隧道配置不存在，请先生成配置")
 	}
@@ -534,6 +549,55 @@ func hasCmd(name string) bool {
 func hasFile(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// kernelModuleLoaded reports whether the named kernel module is currently
+// loaded (present under /sys/module, or listed in /proc/modules).
+func kernelModuleLoaded(name string) bool {
+	if _, err := os.Stat("/sys/module/" + name); err == nil {
+		return true
+	}
+	if data, err := os.ReadFile("/proc/modules"); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			if f := strings.Fields(line); len(f) >= 1 && f[0] == name {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// kernelModuleAvailable reports whether the module is loaded or resolvable
+// (i.e. modprobe can find it on disk / in kernel config). Built-in modules
+// show up via /sys/module; loadable ones are resolved with a dry run.
+func kernelModuleAvailable(name string) bool {
+	if kernelModuleLoaded(name) {
+		return true
+	}
+	if !hasCmd("modprobe") {
+		return false
+	}
+	out, err := exec.Command("modprobe", "-n", "-v", name).CombinedOutput()
+	return err == nil && strings.Contains(string(out), "insmod")
+}
+
+// ensureWireguardKernel best-effort loads the kernel modules WireGuard needs
+// and reports whether the host can actually run a tunnel. Kernel WireGuard
+// needs the `wireguard` module; only userspace implementations (wg-go /
+// boringtun) fall back to the `tun` module, so a missing `tun` is not fatal
+// when the kernel module is present.
+func ensureWireguardKernel() error {
+	if hasCmd("modprobe") {
+		_ = exec.Command("modprobe", "wireguard").Run()
+		_ = exec.Command("modprobe", "tun").Run()
+	}
+	if kernelModuleAvailable("wireguard") {
+		return nil
+	}
+	if kernelModuleLoaded("tun") || hasFile("/dev/net/tun") {
+		return nil
+	}
+	return fmt.Errorf("WireGuard 内核模块不可用且 tun 模块未加载，无法创建隧道。请确认内核支持 wireguard（modprobe wireguard）或 tun（modprobe tun）；若为 VPS 受限内核，请在管理后台开启或联系供应商")
 }
 
 func systemctlAction(unit string, args ...string) error {

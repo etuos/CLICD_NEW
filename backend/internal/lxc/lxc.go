@@ -269,6 +269,7 @@ type ContainerConfig struct {
 	SSHAuthMode          string                     `json:"ssh_auth_mode,omitempty"`
 	SSHPassword          string                     `json:"ssh_password,omitempty"`
 	SSHPublicKey         string                     `json:"ssh_public_key,omitempty"`
+	TunEnabled           bool                       `json:"tun_enabled,omitempty"`
 	ExpiresAt            string                     `json:"expires_at"`
 	Progress             func(stage, detail string) `json:"-"`
 }
@@ -714,6 +715,7 @@ func (m *Manager) CreateContainer(cfg ContainerConfig) error {
 		IOReadMBps:           cfg.IOReadMBps,
 		IOWriteMBps:          cfg.IOWriteMBps,
 		Status:               "stopped",
+		TunEnabled:           cfg.TunEnabled,
 		IP:                   "",
 		LANIPv4Mode:          normalizedLANIPv4Mode(cfg.LANIPv4Mode),
 		LANInterface:         strings.TrimSpace(cfg.LANInterface),
@@ -1176,13 +1178,15 @@ func (m *Manager) applyResourceLimits(lxcName string, cfg ContainerConfig) error
 			!strings.HasPrefix(trimmed, "lxc.cgroup2.cpuset.cpus") &&
 			!strings.HasPrefix(trimmed, "lxc.cgroup2.cpu.max") &&
 			!strings.HasPrefix(trimmed, "lxc.cgroup2.io.max") &&
+			!strings.HasPrefix(trimmed, "lxc.cgroup2.devices.allow") && // clicd TUN device passthrough
 			!strings.HasPrefix(trimmed, "lxc.mount.auto") &&
 			!strings.HasPrefix(trimmed, "lxc.prlimit") &&
 			!strings.HasPrefix(trimmed, "lxc.idmap") &&
 			!strings.HasPrefix(trimmed, "lxc.apparmor.profile") &&
 			!strings.HasPrefix(trimmed, "lxc.seccomp.profile") &&
 			!strings.HasPrefix(trimmed, "lxc.no_new_privs") &&
-			!strings.HasPrefix(trimmed, "lxc.cap.drop") {
+			!strings.HasPrefix(trimmed, "lxc.cap.drop") &&
+			!(strings.HasPrefix(trimmed, "lxc.mount.entry") && strings.Contains(trimmed, "/dev/net/tun")) { // clicd TUN bind mount
 			newLines = append(newLines, line)
 		}
 	}
@@ -1194,6 +1198,13 @@ func (m *Manager) applyResourceLimits(lxcName string, cfg ContainerConfig) error
 	apparmorProfile, err := appArmorProfileForTemplate(cfg.TemplateID)
 	if err != nil {
 		return err
+	}
+	// TUN passthrough binds the host /dev/net/tun into the container. Distributions
+	// that run under a restrictive AppArmor profile (e.g. Alpine's default cgns
+	// profile) block that bind mount, so relax to unconfined when TUN is enabled.
+	// Non-Alpine templates already run unconfined, so this only affects the latter.
+	if cfg.TunEnabled && apparmorProfile != "unconfined" {
+		apparmorProfile = "unconfined"
 	}
 	uidBase, gidBase, err := unprivilegedIDMap()
 	if err != nil {
@@ -1211,6 +1222,16 @@ func (m *Manager) applyResourceLimits(lxcName string, cfg ContainerConfig) error
 	// Keep sys_admin: unprivileged containers need it to mount tmpfs (/dev/shm, /run, etc.)
 	// All capabilities are already confined to the container's user namespace.
 	newLines = append(newLines, "lxc.cap.drop = mac_admin mac_override sys_module sys_rawio sys_time sys_boot sys_nice sys_resource sys_ptrace sys_pacct mknod audit_control audit_read")
+	if cfg.TunEnabled {
+		// TUN passthrough: the container keeps NET_ADMIN (not in the drop list above),
+		// so it can create TUN interfaces once it can reach the host device.
+		//  - cgroup v2 device filter must allow the host tun char device (c 10:200)
+		//  - bind-mount the host /dev/net/tun in (optional so the container still
+		//    boots if the host node is momentarily absent)
+		newLines = append(newLines, "", "# clicd managed: TUN passthrough (WireGuard / OpenVPN / tailscale)")
+		newLines = append(newLines, "lxc.cgroup2.devices.allow = c 10:200 rwm")
+		newLines = append(newLines, "lxc.mount.entry = /dev/net/tun dev/net/tun none bind,create=file,optional")
+	}
 	newLines = append(newLines, managedPrlimitLines()...)
 	newLines = append(newLines, "", "# clicd managed resource limits (cgroup v2)")
 
@@ -2133,6 +2154,7 @@ func (m *Manager) StartContainer(id int) error {
 			IOReadMBps:       c.IOReadMBps,
 			IOWriteMBps:      c.IOWriteMBps,
 			AssignIPv6:       c.IPv6 != "" || len(c.IPv6Addresses) > 0,
+			TunEnabled:       c.TunEnabled,
 			ExpiresAt:        c.ExpiresAt,
 		}); err != nil {
 			return err
@@ -2273,6 +2295,7 @@ func (m *Manager) ApplyContainerLimits(c *config.Container) error {
 		IOReadMBps:       c.IOReadMBps,
 		IOWriteMBps:      c.IOWriteMBps,
 		AssignIPv6:       c.IPv6 != "" || len(c.IPv6Addresses) > 0,
+		TunEnabled:       c.TunEnabled,
 		ExpiresAt:        c.ExpiresAt,
 	}); err != nil {
 		return err

@@ -134,6 +134,7 @@ type Container struct {
 	IOWriteMBps                   int                    `json:"io_write_mbps"`
 	Status                        string                 `json:"status"`
 	RestoreOnHostBoot             bool                   `json:"restore_on_host_boot,omitempty"`
+	TunEnabled                    bool                   `json:"tun_enabled,omitempty"`
 	IP                            string                 `json:"ip"`
 	LANIPv4Mode                   string                 `json:"lan_ipv4_mode,omitempty"`
 	LANInterface                  string                 `json:"lan_interface,omitempty"`

@@ -1665,15 +1665,39 @@ EOF
     if tun_module_loaded; then
         log "tun 内核模块已加载。"
     else
-        modprobe_err="$(modprobe tun 2>&1)" && log "已加载内核模块 tun。" || {
-            # 尝试直接加载 ko（部分环境 modprobe 配置受限）
-            ko="$(find /lib/modules/"$(uname -r)"/ -name 'tun.ko*' 2>/dev/null | head -n 1)"
-            if [ -n "$ko" ] && insmod "$ko" 2>/dev/null; then
-                log "已加载内核模块 tun（insmod $ko）。"
-            else
-                warn "无法加载 tun 内核模块：${modprobe_err:-modprobe/insmod 均失败}。若在容器/受限环境中，请在宿主机执行 modprobe tun 后重试。"
+        if modprobe tun 2>/dev/null; then
+            log "已加载内核模块 tun。"
+        else
+            # Debian/Ubuntu: tun.ko 常在未安装的 linux-modules-extra 包中，补装后重试
+            if [ -f /etc/os-release ]; then
+                . /etc/os-release
+                case "${ID:-}${ID_LIKE:-}" in
+                    *debian*|*ubuntu*)
+                        if has_cmd apt-get; then
+                            log "modprobe tun 失败，尝试安装匹配内核的模块包 linux-modules-extra-$(uname -r) ..."
+                            if apt-get update -qq >/dev/null 2>&1; then
+                                if apt-get install -y -qq "linux-modules-extra-$(uname -r)" >/dev/null 2>&1 \
+                                   || apt-get install -y -qq "linux-modules-$(uname -r)" >/dev/null 2>&1; then
+                                    log "模块包安装完成，重新加载 tun ..."
+                                fi
+                            fi
+                        fi
+                    ;;
+                esac
             fi
-        }
+            if modprobe tun 2>/dev/null; then
+                log "补装模块包后成功加载 tun。"
+            else
+                # 最后尝试直接加载 ko
+                ko="$(find /lib/modules/"$(uname -r)"/ -name 'tun.ko*' 2>/dev/null | head -n 1)"
+                if [ -n "$ko" ] && insmod "$ko" 2>/dev/null; then
+                    log "已加载内核模块 tun（insmod $ko）。"
+                else
+                    warn "无法加载 tun 内核模块：modprobe/insmod 均失败。"
+                    warn "常见原因：VPS 受限内核（OpenVZ/Virtuozzo 或定制内核）不含 tun 模块，需在供应商控制台开启 TUN 或更换为支持的内核。"
+                fi
+            fi
+        fi
     fi
 
     # 2) 设备节点（模块加载后通常由 udev 创建；无 udev 环境则手动 mknod）

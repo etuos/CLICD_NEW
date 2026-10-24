@@ -104,7 +104,9 @@ export default function Tunnels() {
           {tunnel && !tunnel.enabled && (
             <button
               onClick={() => setShowCreateForm(true)}
-              className="px-3 py-1.5 text-sm rounded bg-black text-white hover:bg-gray-800 flex items-center gap-1"
+              disabled={!tunnel.kernel_ready}
+              className="px-3 py-1.5 text-sm rounded bg-black text-white hover:bg-gray-800 flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+              title={tunnel.kernel_ready ? '创建隧道' : '内核模块未就绪，请先加载内核模块'}
             >
               <Settings className="w-4 h-4" /> 创建
             </button>
@@ -261,13 +263,19 @@ export default function Tunnels() {
               <p className="text-black dark:text-white">{tunnel.config_path}</p>
             </div>
             <div>
-              <span className="text-gray-500 dark:text-gray-400">TUN 设备</span>
-              <p className={tunnel.tun_available ? 'text-green-600' : 'text-red-600'}>
-                {tunnel.tun_available ? '可用' : '不可用'}
+              <span className="text-gray-500 dark:text-gray-400">WireGuard 内核模块</span>
+              <p className={tunnel.wireguard_module ? 'text-green-600' : 'text-red-600'}>
+                {tunnel.wireguard_module ? '可用' : '不可用'}
               </p>
             </div>
             <div>
-              <span className="text-gray-500 dark:text-gray-400">WireGuard</span>
+              <span className="text-gray-500 dark:text-gray-400">TUN 模块</span>
+              <p className={tunnel.tun_available ? 'text-green-600' : 'text-gray-400'}>
+                {tunnel.tun_available ? '已加载' : '未加载'}
+              </p>
+            </div>
+            <div>
+              <span className="text-gray-500 dark:text-gray-400">WireGuard 工具</span>
               <p className={tunnel.wireguard_installed ? 'text-green-600' : 'text-red-600'}>
                 {tunnel.wireguard_installed ? '已安装' : '未安装'}
               </p>
@@ -279,6 +287,30 @@ export default function Tunnels() {
               </p>
             </div>
           </div>
+
+          {/* Kernel readiness hint: kernel WireGuard does not need the tun module. */}
+          {!tunnel.kernel_ready && (
+            <div className="mt-4 p-3 rounded bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                <div className="text-sm text-amber-800 dark:text-amber-200">
+                  <p className="font-medium">内核模块未就绪，无法创建 WireGuard 隧道。</p>
+                  <p className="mt-1 text-xs">
+                    内核 WireGuard 需要 <code>wireguard</code> 模块；仅使用 userspace 实现（wireguard-go）时才需要{' '}
+                    <code>tun</code> 模块。可先尝试加载；若为 VPS 受限内核，请联系供应商开启。
+                  </p>
+                  <button
+                    onClick={() => runAction({ action: 'load_modules' })}
+                    disabled={actionLoading}
+                    className="mt-2 inline-flex items-center gap-1 px-2 py-1 rounded bg-amber-600 hover:bg-amber-700 text-white text-xs disabled:opacity-50"
+                  >
+                    <Settings className="w-3 h-3" />
+                    加载内核模块
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {error && (
             <div className="mt-4 p-3 rounded bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 flex items-center gap-2">

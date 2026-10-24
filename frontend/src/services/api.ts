@@ -1102,11 +1102,13 @@ export interface TunnelStatus {
   config_path: string
   wireguard_installed: boolean
   tun_available: boolean
+  wireguard_module: boolean
+  kernel_ready: boolean
   nat_subnet?: string
 }
 
 export interface TunnelActionPayload {
-  action: 'status' | 'create' | 'enable' | 'disable' | 'reload' | 'sync' | 'add_peer' | 'remove_peer' | 'reset_key' | 'delete'
+  action: 'status' | 'load_modules' | 'create' | 'enable' | 'disable' | 'reload' | 'sync' | 'add_peer' | 'remove_peer' | 'reset_key' | 'delete'
   listen_port?: number
   address?: string
   mtu?: number
