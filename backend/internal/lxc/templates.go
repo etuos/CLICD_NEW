@@ -56,6 +56,16 @@ func GetTemplates() []Template {
 			Description: "Alpine Linux 3.21",
 		},
 		{
+			ID: "alpine-3.22", Name: "Alpine 3.22",
+			Distro: "alpine", Release: "3.22", Arch: arch,
+			Description: "Alpine Linux 3.22",
+		},
+		{
+			ID: "alpine-3.23", Name: "Alpine 3.23",
+			Distro: "alpine", Release: "3.23", Arch: arch,
+			Description: "Alpine Linux 3.23",
+		},
+		{
 			ID: "centos-9-stream", Name: "CentOS 9 Stream",
 			Distro: "centos", Release: "9-Stream", Arch: arch,
 			Description: "CentOS 9 Stream",

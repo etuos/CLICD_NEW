@@ -1171,6 +1171,8 @@ function getTemplateName(id: string) {
     'debian-bookworm': 'Debian 12',
     'debian-bullseye': 'Debian 11',
     'alpine-3.21': 'Alpine 3.21',
+    'alpine-3.22': 'Alpine 3.22',
+    'alpine-3.23': 'Alpine 3.23',
     'centos-9-stream': 'CentOS 9',
     'archlinux-current': 'Arch Linux',
     'fedora-44': 'Fedora 44',

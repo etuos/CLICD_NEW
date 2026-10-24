@@ -31,6 +31,20 @@ func TestValidateRuntimeResourceRequest_DiskLimits(t *testing.T) {
 			expectError: true,
 		},
 		{
+			name:        "Alpine 3.22 0.5G succeeds",
+			runtime:     config.VirtualizationLXC,
+			templateID:  "alpine-3.22",
+			diskGB:      0.5,
+			expectError: false,
+		},
+		{
+			name:        "Alpine 3.23 0.5G succeeds",
+			runtime:     config.VirtualizationLXC,
+			templateID:  "alpine-3.23",
+			diskGB:      0.5,
+			expectError: false,
+		},
+		{
 			name:        "Debian 0.5G fails",
 			runtime:     config.VirtualizationLXC,
 			templateID:  "debian-bookworm",

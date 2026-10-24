@@ -377,6 +377,10 @@ func officialLXCImageCachePath(templateID string) (string, bool) {
 		return filepath.Join(base, "debian", "bullseye", arch), true
 	case "alpine-3.21":
 		return filepath.Join(base, "alpine", "3.21", arch), true
+	case "alpine-3.22":
+		return filepath.Join(base, "alpine", "3.22", arch), true
+	case "alpine-3.23":
+		return filepath.Join(base, "alpine", "3.23", arch), true
 	case "centos-9-stream":
 		return filepath.Join(base, "centos", "9-Stream", arch), true
 	case "archlinux-current":
