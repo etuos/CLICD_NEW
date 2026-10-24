@@ -1093,7 +1093,8 @@ install_apk() {
         iproute2 \
         iptables \
         dnsmasq \
-        dbus
+        dbus \
+        kmod
 
     if kvm_supported_arch; then
         apk add --no-cache \
@@ -1142,7 +1143,16 @@ install_apt() {
         quota \
         e2fsprogs \
         xfsprogs \
-        dnsmasq-base
+        dnsmasq \
+        kmod-base \
+        kmod
+
+    # tun.ko 一般位于 linux-modules-extra-<kernel>，最小化 VPS 镜像默认不带该包，
+    # 缺失时 modprobe tun 会因找不到模块而失败。显式安装并回退到 linux-modules。
+    if ! apt_get install -y "linux-modules-extra-$(uname -r)" >/dev/null 2>&1; then
+        apt_get install -y "linux-modules-$(uname -r)" >/dev/null 2>&1 || \
+            warn "未找到匹配内核 $(uname -r) 的模块包，tun 模块可能不可用。"
+    fi
 
     if kvm_supported_arch; then
         apt_get install -y \
@@ -1198,7 +1208,8 @@ install_dnf() {
         quota \
         e2fsprogs \
         xfsprogs \
-        dnsmasq
+        dnsmasq \
+        kmod
 
     if kvm_supported_arch; then
         dnf install -y \
@@ -1241,7 +1252,8 @@ install_yum() {
         quota \
         e2fsprogs \
         xfsprogs \
-        dnsmasq
+        dnsmasq \
+        kmod
 
     if kvm_supported_arch; then
         yum install -y \
@@ -1636,6 +1648,115 @@ EOF
     chmod 0644 "$CLICD_NETWORK_ENV"
 }
 
+# 前置检查并安装 TUN 内核模块（在 install_dependencies 之后、configure_kernel_networking 之前调用）。
+# 最小化 VPS 镜像常缺 kmod(modprobe 命令) 与 linux-modules-extra-<kernel>(tun.ko)，
+# 这正是其它 LXC 脚本能加载 tun 而 CLICD 失败的原因——它们在基础依赖里就装了这两样。
+# 本函数只告警不中断（始终 return 0），TUN 不可用不影响其余功能安装。
+ensure_tun_available() {
+    log "正在检查并安装 TUN 内核模块..."
+
+    tun_loaded() {
+        if [ -d /sys/module/tun ]; then
+            return 0
+        fi
+        if [ -r /proc/modules ] && awk '$1=="tun"{found=1} END{exit !found}' /proc/modules 2>/dev/null; then
+            return 0
+        fi
+        return 1
+    }
+
+    # 1) 确保 modprobe 命令可用（kmod 包；最小化镜像常缺失）
+    if ! command -v modprobe >/dev/null 2>&1; then
+        log "未找到 modprobe 命令，尝试安装 kmod 包..."
+        case "${OS_ID:-}" in
+            ubuntu|debian)
+                if has_cmd apt-get; then apt-get install -y -qq kmod >/dev/null 2>&1 || true; fi
+                ;;
+            alpine)
+                if has_cmd apk; then apk add --no-cache kmod >/dev/null 2>&1 || true; fi
+                ;;
+            centos|rhel|rocky|almalinux|fedora)
+                if has_cmd dnf; then dnf install -y kmod >/dev/null 2>&1 || true
+                elif has_cmd yum; then yum install -y kmod >/dev/null 2>&1 || true
+                fi
+                ;;
+            *)
+                if has_cmd apt-get; then apt-get install -y -qq kmod >/dev/null 2>&1 || true
+                elif has_cmd apk; then apk add --no-cache kmod >/dev/null 2>&1 || true
+                fi
+                ;;
+        esac
+    fi
+
+    # 2) 确保内核模块包已装（tun.ko 所在；最小化镜像常缺）
+    if ! tun_loaded; then
+        case "${OS_ID:-}" in
+            ubuntu|debian)
+                if has_cmd apt-get; then
+                    apt-get install -y -qq "linux-modules-extra-$(uname -r)" >/dev/null 2>&1 \
+                        || apt-get install -y -qq "linux-modules-$(uname -r)" >/dev/null 2>&1 \
+                        || true
+                fi
+                ;;
+            centos|rhel|rocky|almalinux|fedora)
+                if has_cmd dnf; then
+                    dnf install -y "kernel-modules-extra-$(uname -r)" >/dev/null 2>&1 \
+                        || dnf install -y "kernel-modules-$(uname -r)" >/dev/null 2>&1 \
+                        || true
+                elif has_cmd yum; then
+                    yum install -y "kernel-modules-extra-$(uname -r)" >/dev/null 2>&1 \
+                        || yum install -y "kernel-modules-$(uname -r)" >/dev/null 2>&1 \
+                        || true
+                fi
+                ;;
+        esac
+    fi
+
+    # 3) 加载模块：modprobe → insmod 兜底
+    if tun_loaded; then
+        log "tun 内核模块已加载。"
+    elif command -v modprobe >/dev/null 2>&1 && modprobe tun >/dev/null 2>&1; then
+        log "已加载内核模块 tun（modprobe）。"
+    else
+        ko="$(find /lib/modules/"$(uname -r)"/ -name 'tun.ko*' 2>/dev/null | head -n 1 || true)"
+        if [ -n "$ko" ] && command -v insmod >/dev/null 2>&1 && insmod "$ko" >/dev/null 2>&1; then
+            log "已加载内核模块 tun（insmod $ko）。"
+        fi
+    fi
+
+    # 4) 设备节点（模块加载后通常由 udev 创建；无 udev 则手动 mknod）
+    if [ ! -e /dev/net/tun ]; then
+        mkdir -p /dev/net 2>/dev/null || true
+        mknod /dev/net/tun c 10 200 >/dev/null 2>&1 || true
+        chmod 0660 /dev/net/tun >/dev/null 2>&1 || true
+    fi
+
+    # 5) 持久化：写入 modules-load.d，并触发 systemd-modules-load 立即生效
+    if [ -d /etc/modules-load.d ]; then
+        echo "tun" > /etc/modules-load.d/clicd-tun.conf
+        if command -v systemctl >/dev/null 2>&1; then
+            systemctl start systemd-modules-load.service >/dev/null 2>&1 || true
+        fi
+    elif [ -f /etc/modules ]; then
+        if ! grep -qx "tun" /etc/modules 2>/dev/null; then
+            echo "tun" >> /etc/modules
+        fi
+    fi
+
+    # 6) 结果校验（只告警，不中断安装）
+    if tun_loaded && [ -e /dev/net/tun ]; then
+        log "TUN 就绪：模块已加载，设备 /dev/net/tun 可用。"
+    elif [ -e /dev/net/tun ]; then
+        warn "存在 /dev/net/tun 但未确认 tun 模块已加载。WireGuard 隧道可能不可用。"
+    else
+        warn "无法加载 tun 内核模块（modprobe/insmod 均失败，或无匹配模块包）。"
+        warn "若本机是 VPS（OpenVZ/Virtuozzo 或定制内核），tun 被宿主内核屏蔽，需在供应商管理后台开启 TUN。"
+        warn "CLICD 已继续安装；未启用 TUN 的容器不受影响，WireGuard 隧道功能将不可用。"
+    fi
+
+    return 0
+}
+
 configure_kernel_networking() {
     log "正在启用内核转发配置..."
     cat > /etc/sysctl.d/99-clicd.conf << 'EOF'
@@ -1648,80 +1769,9 @@ EOF
     modprobe br_netfilter >/dev/null 2>&1 || true
     sysctl --system >/dev/null 2>&1 || true
 
-    # 确保 TUN 设备可用（WireGuard / WireGuard 出口隧道需要）
-    log "正在确保 TUN 设备可用..."
-
-    tun_module_loaded() {
-        if [ -d /sys/module/tun ]; then
-            return 0
-        fi
-        if [ -r /proc/modules ]; then
-            awk '$1=="tun"{found=1} END{exit !found}' /proc/modules && return 0
-        fi
-        return 1
-    }
-
-    # 1) 内核模块必须真正加载（/dev/net/tun 节点存在不代表模块已加载）
-    if tun_module_loaded; then
-        log "tun 内核模块已加载。"
-    else
-        if modprobe tun 2>/dev/null; then
-            log "已加载内核模块 tun。"
-        else
-            # Debian/Ubuntu: tun.ko 常在未安装的 linux-modules-extra 包中，补装后重试
-            if [ -f /etc/os-release ]; then
-                . /etc/os-release
-                case "${ID:-}${ID_LIKE:-}" in
-                    *debian*|*ubuntu*)
-                        if has_cmd apt-get; then
-                            log "modprobe tun 失败，尝试安装匹配内核的模块包 linux-modules-extra-$(uname -r) ..."
-                            if apt-get update -qq >/dev/null 2>&1; then
-                                if apt-get install -y -qq "linux-modules-extra-$(uname -r)" >/dev/null 2>&1 \
-                                   || apt-get install -y -qq "linux-modules-$(uname -r)" >/dev/null 2>&1; then
-                                    log "模块包安装完成，重新加载 tun ..."
-                                fi
-                            fi
-                        fi
-                    ;;
-                esac
-            fi
-            if modprobe tun 2>/dev/null; then
-                log "补装模块包后成功加载 tun。"
-            else
-                # 最后尝试直接加载 ko
-                ko="$(find /lib/modules/"$(uname -r)"/ -name 'tun.ko*' 2>/dev/null | head -n 1)"
-                if [ -n "$ko" ] && insmod "$ko" 2>/dev/null; then
-                    log "已加载内核模块 tun（insmod $ko）。"
-                else
-                    warn "无法加载 tun 内核模块：modprobe/insmod 均失败。"
-                    warn "常见原因：VPS 受限内核（OpenVZ/Virtuozzo 或定制内核）不含 tun 模块，需在供应商控制台开启 TUN 或更换为支持的内核。"
-                fi
-            fi
-        fi
-    fi
-
-    # 2) 设备节点（模块加载后通常由 udev 创建；无 udev 环境则手动 mknod）
-    if [ ! -e /dev/net/tun ]; then
-        [ -d /dev/net ] || mkdir -p /dev/net
-        mknod /dev/net/tun c 10 200 >/dev/null 2>&1 || true
-        chmod 0660 /dev/net/tun >/dev/null 2>&1 || true
-    fi
-
-    # 3) 持久化：重启后自动加载
-    if [ -d /etc/modules-load.d ]; then
-        echo "tun" > /etc/modules-load.d/clicd-tun.conf
-    elif [ -f /etc/modules ]; then
-        grep -qx "tun" /etc/modules 2>/dev/null || echo "tun" >> /etc/modules
-    fi
-
-    # 4) 结果校验：以"模块是否加载"为准，避免节点存在但模块缺失的假就绪
-    if tun_module_loaded && [ -e /dev/net/tun ]; then
-        log "TUN 就绪：模块已加载，设备 /dev/net/tun 可用。"
-    elif [ -e /dev/net/tun ]; then
-        warn "存在 /dev/net/tun 但未确认 tun 模块已加载。WireGuard 隧道可能不可用；若需要请在宿主机执行：modprobe tun"
-    else
-        warn "TUN 不可用：未加载 tun 模块且无 /dev/net/tun。WireGuard 隧道功能将不可用。"
-    fi
+    # 确保 TUN 设备可用（WireGuard 出口隧道需要）。
+    # 前置步骤 ensure_tun_available 已在依赖安装后执行；此处再调用一次保证幂等。
+    ensure_tun_available
 
     if has_cmd wg-quick; then
         log "已检测到 wireguard-tools，隧道管理功能可用。"
@@ -2264,6 +2314,7 @@ print_summary() {
 run_step "兼容性检查" check_os_compatibility
 run_step "存储环境检查" check_storage_compatibility
 run_step "安装系统依赖" install_dependencies
+run_step "检查并安装 TUN 模块" ensure_tun_available
 choose_nat_networks
 run_step "配置内核网络参数" configure_kernel_networking
 run_step "配置防火墙规则" configure_firewall_rules

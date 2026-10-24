@@ -12,7 +12,6 @@ import {
   Moon,
   Package,
   Route,
-  GitPullRequestArrow,
   ScrollText,
   Server,
 
@@ -85,7 +84,6 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
   const isSnapshotsPage = location.pathname.startsWith('/snapshots')
   const isRoutingPage = location.pathname.startsWith('/routing')
-  const isTunnelsPage = location.pathname.startsWith('/tunnels')
   const isStoragePage = location.pathname.startsWith('/storage')
   const isAuditLogsPage = location.pathname.startsWith('/audit-logs')
   const isApiIntegrationPage = location.pathname.startsWith('/api-integration')
@@ -203,18 +201,6 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
             >
               <Route className="w-4 h-4" />
               {!collapsed && <span>路由管理</span>}
-            </button>
-
-            <button
-              onClick={() => navigate('/tunnels')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors ${
-                isTunnelsPage
-                  ? 'bg-black text-white dark:bg-white dark:text-black'
-                  : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
-              }`}
-            >
-              <GitPullRequestArrow className="w-4 h-4" />
-              {!collapsed && <span>隧道管理</span>}
             </button>
 
             <button
