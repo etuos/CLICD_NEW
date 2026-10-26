@@ -2272,6 +2272,15 @@ export default function ContainerDetail() {
               />
               启用 HTTPS（自动签发 Let&apos;s Encrypt 证书）
             </label>
+            {proxyDraft.tls ? (
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                勾选后域名必须已解析到本机 IP，否则 Caddy 会反复尝试签发证书并被 Let&apos;s Encrypt 限流。本地测试可先取消勾选走 HTTP。
+              </p>
+            ) : (
+              <p className="text-xs text-gray-500">
+                未启用 HTTPS：仅通过 HTTP 提供服务，不会申请证书，适合 DNS 未就绪时本地测试。
+              </p>
+            )}
             <div className="flex justify-end gap-2 pt-2">
               <button
                 onClick={() => setShowProxyEditor(false)}

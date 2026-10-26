@@ -274,20 +274,25 @@ func writeAndReloadCaddy() error {
 				continue
 			}
 			hasRules = true
-			scheme := "http://"
-			if r.TLS {
-				scheme = "https://"
+			// The upstream (container) is plain HTTP; TLS is terminated at the
+			// domain by Caddy's automatic Let's Encrypt. Do NOT prefix the
+			// upstream with https:// — that makes Caddy reject the config when
+			// the target port is the HTTP port (80).
+			//
+			// The rule's TLS flag controls the *domain* only: when it is off we
+			// pin the site to http:// so Caddy does not attempt ACME (avoids
+			// Let's Encrypt rate limiting while DNS is not ready yet).
+			site := r.Domain
+			if !r.TLS {
+				site = "http://" + r.Domain
 			}
-			b.WriteString(r.Domain + " {\n")
+			b.WriteString(site + " {\n")
 			if r.Path != "" {
 				b.WriteString("\thandle " + r.Path + " {\n")
-				b.WriteString("\t\treverse_proxy " + scheme + c.IP + ":" + fmt.Sprintf("%d", r.TargetPort) + "\n")
+				b.WriteString("\t\treverse_proxy http://" + c.IP + ":" + fmt.Sprintf("%d", r.TargetPort) + "\n")
 				b.WriteString("\t}\n")
 			} else {
-				b.WriteString("\treverse_proxy " + scheme + c.IP + ":" + fmt.Sprintf("%d", r.TargetPort) + "\n")
-			}
-			if r.TLS {
-				// Let Caddy manage ACME automatically (default).
+				b.WriteString("\treverse_proxy http://" + c.IP + ":" + fmt.Sprintf("%d", r.TargetPort) + "\n")
 			}
 			b.WriteString("}\n\n")
 		}
