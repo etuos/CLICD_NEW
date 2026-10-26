@@ -169,6 +169,7 @@ export interface CreateContainerRequest {
   nat_port_mappings?: PortMapping[]
   management_port?: number
   port_mapping_count: number
+  proxy_rule_count?: number
   assign_nat?: boolean
   lan_ipv4_mode?: string
   lan_interface?: string
@@ -568,13 +569,11 @@ export const getPanelAccessPolicy = () =>
 export const updatePanelAccessPolicy = (data: Pick<PanelAccessPolicy, 'enabled' | 'allowed_sources' | 'trusted_proxies'>) =>
   api.put<APIResponse<PanelAccessPolicy>>('/access-policy', data)
 
-// Reverse proxy rules (Caddy)
+// Reverse proxy rules (Caddy) — per container
 export interface ProxyRule {
   id: number
   domain: string
   path?: string
-  target_container_id: number
-  target_container?: string
   target_port: number
   name?: string
   enabled: boolean
@@ -585,23 +584,29 @@ export interface ProxyRule {
 export interface ProxyRuleCreate {
   domain: string
   path?: string
-  target_container_id: number
   target_port: number
   name?: string
   tls: boolean
 }
 
-export const getProxyRules = () =>
-  api.get<APIResponse<ProxyRule[]>>('/proxy/rules')
+export interface ProxyRulesResponse {
+  rules: ProxyRule[]
+  limit: number
+  container_ip: string
+  caddy_installed: boolean
+}
 
-export const createProxyRule = (data: ProxyRuleCreate) =>
-  api.post<APIResponse<ProxyRule>>('/proxy/rules', data)
+export const getProxyRules = (id: ContainerIdentifier) =>
+  api.get<APIResponse<ProxyRulesResponse>>(`/containers/${id}/proxy-rules`)
 
-export const updateProxyRule = (id: number, data: Partial<ProxyRuleCreate> & { enabled?: boolean }) =>
-  api.put<APIResponse<ProxyRule>>(`/proxy/rules/${id}`, data)
+export const addProxyRule = (id: ContainerIdentifier, data: ProxyRuleCreate) =>
+  api.post<APIResponse<ProxyRule[]>>(`/containers/${id}/proxy-rules`, data)
 
-export const deleteProxyRule = (id: number) =>
-  api.delete<APIResponse>(`/proxy/rules/${id}`)
+export const updateProxyRule = (id: ContainerIdentifier, ruleId: number, data: Partial<ProxyRuleCreate> & { enabled?: boolean }) =>
+  api.put<APIResponse<ProxyRule[]>>(`/containers/${id}/proxy-rules/${ruleId}`, data)
+
+export const deleteProxyRule = (id: ContainerIdentifier, ruleId: number) =>
+  api.delete<APIResponse<ProxyRule[]>>(`/containers/${id}/proxy-rules/${ruleId}`)
 
 // Containers
 export const getContainers = () =>

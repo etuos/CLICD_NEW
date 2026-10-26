@@ -199,6 +199,26 @@ func HandleSingleContainer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		deletePortMapping(w, r, id, strings.TrimPrefix(action, "port-mappings/"))
+	case action == "proxy-rules" && r.Method == http.MethodGet:
+		if !requireScope(w, r, "container:read") {
+			return
+		}
+		getProxyRules(w, r, id)
+	case action == "proxy-rules" && r.Method == http.MethodPost:
+		if !requireScope(w, r, "container:network") {
+			return
+		}
+		addProxyRule(w, r, id)
+	case strings.HasPrefix(action, "proxy-rules/") && r.Method == http.MethodPut:
+		if !requireScope(w, r, "container:network") {
+			return
+		}
+		updateProxyRule(w, r, id, strings.TrimPrefix(action, "proxy-rules/"))
+	case strings.HasPrefix(action, "proxy-rules/") && r.Method == http.MethodDelete:
+		if !requireScope(w, r, "container:network") {
+			return
+		}
+		deleteProxyRule(w, r, id, strings.TrimPrefix(action, "proxy-rules/"))
 	case action == "firewall" && r.Method == http.MethodGet:
 		if !requireScope(w, r, "container:network") {
 			return
@@ -284,6 +304,13 @@ func createContainer(w http.ResponseWriter, r *http.Request) {
 	}
 	if cfg.PortMappingCount > 64 {
 		jsonResponse(w, http.StatusBadRequest, APIResponse{Success: false, Message: "Port mapping count cannot exceed 64"})
+		return
+	}
+	if cfg.ProxyRuleCount < 0 {
+		cfg.ProxyRuleCount = 0
+	}
+	if cfg.ProxyRuleCount > 64 {
+		jsonResponse(w, http.StatusBadRequest, APIResponse{Success: false, Message: "Proxy rule count cannot exceed 64"})
 		return
 	}
 	if cfg.IPv4Count < 0 || cfg.IPv6Count < 0 {

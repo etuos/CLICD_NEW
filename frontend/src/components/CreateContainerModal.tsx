@@ -36,6 +36,7 @@ const defaultForm: CreateContainerRequest = {
   nat_port_mappings: [],
   management_port: 0,
   port_mapping_count: 2,
+  proxy_rule_count: 0,
   assign_nat: true,
   lan_ipv4_mode: '',
   lan_interface: '',
@@ -1095,6 +1096,23 @@ export default function CreateContainerModal({ isOpen, onClose, onSuccess, exist
               </div>
             )}
           </div>
+
+          <div className="rounded-md border border-gray-200 bg-white px-3 py-2 text-sm">
+            <div className="flex items-center justify-between gap-3">
+              <span className="min-w-0">
+                <span className="block font-medium text-gray-800">{language === 'en' ? 'Reverse proxy quota' : '反向代理配额'}</span>
+                <span className="block text-xs text-gray-500">{language === 'en' ? 'Number of Caddy reverse proxy rules allowed for this container (0 = disabled).' : '允许此容器配置的反代规则数量（0 = 禁用）。域名需解析到主机 IP 才能签发 HTTPS 证书。'}</span>
+              </span>
+              <span className="w-24 shrink-0">
+                <NumberInput
+                  value={form.proxy_rule_count || 0}
+                  min={0}
+                  max={64}
+                  onChange={(value) => setForm({ ...form, proxy_rule_count: Math.max(0, Math.round(value || 0)) })}
+                />
+              </span>
+            </div>
+          </div>
           </div>
           )}
 
@@ -1468,6 +1486,7 @@ function normalizeCreateForm(form: CreateContainerRequest): CreateContainerReque
     disk_gb: normalized.virtualization === 'kvm' ? Math.round(normalized.disk_gb) : normalizeLXCDisk(normalized.disk_gb),
     assign_nat: wantsNAT,
     port_mapping_count: portMappingCount,
+    proxy_rule_count: clampInt(normalized.proxy_rule_count || 0, 0, 64, 0),
     extra_ports: [],
     nat_port_mappings: natPortMappings,
     management_port: managementPort,

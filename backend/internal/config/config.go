@@ -26,18 +26,17 @@ type PortMapping struct {
 }
 
 // ProxyRule is a reverse-proxy rule managed by Caddy.
-// It maps a public domain (optionally a path prefix) to a port inside an LXC container.
+// It maps a public domain (optionally a path prefix) to a port inside the owning LXC container.
 // Caddy terminates TLS automatically via Let's Encrypt when TLS is enabled.
 type ProxyRule struct {
-	ID                int    `json:"id"`
-	Domain            string `json:"domain"`            // e.g. app.example.com or *.example.com
-	Path              string `json:"path,omitempty"`    // e.g. "/api"; empty = the whole site
-	TargetContainerID int    `json:"target_container_id"`
-	TargetPort        int    `json:"target_port"`       // port listening inside the container
-	Name              string `json:"name,omitempty"`
-	Enabled           bool   `json:"enabled"`
-	TLS               bool   `json:"tls"`               // true = HTTPS + Let's Encrypt; false = HTTP only
-	CreatedAt         string `json:"created_at"`
+	ID         int    `json:"id"`
+	Domain     string `json:"domain"`         // e.g. app.example.com or *.example.com
+	Path       string `json:"path,omitempty"` // e.g. "/api"; empty = the whole site
+	TargetPort int    `json:"target_port"`    // port listening inside the container
+	Name       string `json:"name,omitempty"`
+	Enabled    bool   `json:"enabled"`
+	TLS        bool   `json:"tls"` // true = HTTPS + Let's Encrypt; false = HTTP only
+	CreatedAt  string `json:"created_at"`
 }
 
 type FirewallRule struct {
@@ -167,6 +166,8 @@ type Container struct {
 	SSHHostKey                    string                 `json:"ssh_host_key,omitempty"`
 	PortMappings                  []PortMapping          `json:"port_mappings"`
 	PortMappingLimit              int                    `json:"port_mapping_limit"`
+	ProxyRules                    []ProxyRule            `json:"proxy_rules,omitempty"`
+	ProxyRuleLimit                int                    `json:"proxy_rule_limit"`
 	FirewallEnabled               bool                   `json:"firewall_enabled"`
 	FirewallDefaultAction         string                 `json:"firewall_default_action"`
 	FirewallRules                 []FirewallRule         `json:"firewall_rules"`
@@ -826,7 +827,6 @@ type ClicdConfig struct {
 	PublicIPv6Prefixes   []PublicIPv6Prefix     `json:"public_ipv6_prefixes"`
 	WebSSHAllowedOrigins []string               `json:"webssh_allowed_origins"`
 	PanelAccessPolicy    PanelAccessPolicy      `json:"panel_access_policy"`
-	ProxyRules           []ProxyRule            `json:"proxy_rules"`
 	SecurityAutoShutdown bool                   `json:"security_auto_shutdown"`
 	TaskConcurrency      int                    `json:"task_concurrency"`
 	Language             string                 `json:"language"`

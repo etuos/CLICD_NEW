@@ -6,58 +6,21 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"sort"
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"clicd/internal/config"
 )
 
-type proxyRuleResponse struct {
-	ID                int    `json:"id"`
-	Domain            string `json:"domain"`
-	Path              string `json:"path,omitempty"`
-	TargetContainerID int    `json:"target_container_id"`
-	TargetContainer   string `json:"target_container"`
-	TargetPort        int    `json:"target_port"`
-	Name              string `json:"name,omitempty"`
-	Enabled           bool   `json:"enabled"`
-	TLS               bool   `json:"tls"`
-	CreatedAt         string `json:"created_at"`
-}
-
-type proxyRuleCreateRequest struct {
-	Domain            string `json:"domain"`
-	Path              string `json:"path,omitempty"`
-	TargetContainerID int    `json:"target_container_id"`
-	TargetPort        int    `json:"target_port"`
-	Name              string `json:"name,omitempty"`
-	TLS               bool   `json:"tls"`
-}
-
-type proxyRuleUpdateRequest struct {
-	Domain            string `json:"domain,omitempty"`
-	Path              string `json:"path,omitempty"`
-	TargetContainerID int    `json:"target_container_id,omitempty"`
-	TargetPort        int    `json:"target_port,omitempty"`
-	Name              string `json:"name,omitempty"`
-	Enabled           *bool  `json:"enabled,omitempty"`
-	TLS               *bool  `json:"tls,omitempty"`
-}
-
-var proxyRulesMu sync.Mutex
-
 const (
-	caddyfilePath   = "/etc/caddy/Caddyfile"
-	caddyService    = "caddy"
+	caddyfilePath = "/etc/caddy/Caddyfile"
+	caddyService  = "caddy"
 )
 
-// proxyRuleNextID returns a fresh rule id (simple monotonically increasing id).
-func proxyRuleNextID() int {
+// proxyRuleNextID returns a fresh rule id for the given container.
+func proxyRuleNextID(c *config.Container) int {
 	max := 0
-	for _, r := range config.AppConfig.ProxyRules {
+	for _, r := range c.ProxyRules {
 		if r.ID > max {
 			max = r.ID
 		}
@@ -65,302 +28,285 @@ func proxyRuleNextID() int {
 	return max + 1
 }
 
-func proxyRuleByID(id int) *config.ProxyRule {
-	for i := range config.AppConfig.ProxyRules {
-		if config.AppConfig.ProxyRules[i].ID == id {
-			return &config.AppConfig.ProxyRules[i]
+func proxyRuleByID(c *config.Container, id int) *config.ProxyRule {
+	for i := range c.ProxyRules {
+		if c.ProxyRules[i].ID == id {
+			return &c.ProxyRules[i]
 		}
 	}
 	return nil
 }
 
-func proxyRuleFromPath(path string) string {
-	// path like /api/proxy/rules/123
-	parts := strings.Split(strings.TrimRight(path, "/"), "/")
-	if len(parts) >= 4 {
-		return parts[len(parts)-1]
+func proxyRuleIndex(c *config.Container, id int) int {
+	for i := range c.ProxyRules {
+		if c.ProxyRules[i].ID == id {
+			return i
+		}
 	}
-	return ""
+	return -1
 }
 
-func normalizeProxyRule(req proxyRuleCreateRequest) error {
-	domain := strings.TrimSpace(req.Domain)
-	if domain == "" {
-		return fmt.Errorf("domain is required")
-	}
-	domain = strings.ToLower(domain)
-	req.Domain = domain
-
-	if req.TargetContainerID <= 0 {
-		return fmt.Errorf("target_container_id is required")
-	}
-	c := config.FindContainer(req.TargetContainerID)
+// getProxyRules lists the container's reverse-proxy rules plus the container IP
+// (so the UI can show what each rule points at).
+func getProxyRules(w http.ResponseWriter, r *http.Request, id int) {
+	c := config.FindContainer(id)
 	if c == nil {
-		return fmt.Errorf("container not found: %d", req.TargetContainerID)
+		jsonResponse(w, http.StatusNotFound, APIResponse{Success: false, Message: "Container not found"})
+		return
 	}
-	if c.IP == "" {
-		return fmt.Errorf("container %s has no IP assigned", c.Name)
-	}
-	if req.TargetPort <= 0 || req.TargetPort > 65535 {
-		return fmt.Errorf("target_port must be between 1 and 65535")
-	}
-	if req.Path != "" && !strings.HasPrefix(req.Path, "/") {
-		return fmt.Errorf("path must start with '/'")
-	}
-	return nil
+	jsonResponse(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{
+		"rules":         c.ProxyRules,
+		"limit":         c.ProxyRuleLimit,
+		"container_ip":  c.IP,
+		"caddy_installed": caddyInstalled(),
+	}})
 }
 
-// toProxyRuleResponse builds a response struct from a stored rule.
-func toProxyRuleResponse(rule config.ProxyRule) proxyRuleResponse {
-	resp := proxyRuleResponse{
-		ID:                rule.ID,
-		Domain:            rule.Domain,
-		Path:              rule.Path,
-		TargetContainerID: rule.TargetContainerID,
-		TargetPort:        rule.TargetPort,
-		Name:              rule.Name,
-		Enabled:           rule.Enabled,
-		TLS:               rule.TLS,
-		CreatedAt:         rule.CreatedAt,
-	}
-	if c := config.FindContainer(rule.TargetContainerID); c != nil {
-		resp.TargetContainer = c.Name
-	}
-	return resp
+func caddyInstalled() bool {
+	_, err := exec.LookPath("caddy")
+	return err == nil
 }
 
-// writeCaddyfile renders all enabled proxy rules into /etc/caddy/Caddyfile.
-func writeCaddyfile() error {
-	var lines []string
-	lines = append(lines, "# Managed by CLICD — do not edit by hand. Edit rules in the panel.")
-	lines = append(lines, "")
-
-	for _, rule := range config.AppConfig.ProxyRules {
-		if !rule.Enabled {
-			continue
-		}
-		c := config.FindContainer(rule.TargetContainerID)
-		if c == nil || c.IP == "" {
-			continue
-		}
-		scheme := ""
-		if rule.TLS {
-			scheme = "https://"
-		} else {
-			scheme = "http://"
-		}
-		host := scheme + rule.Domain
-		if rule.Path != "" {
-			host = host + rule.Path
-		}
-		lines = append(lines, host+" {")
-		lines = append(lines, "\treverse_proxy "+c.IP+":"+strconv.Itoa(rule.TargetPort))
-		if rule.Path != "" {
-			lines = append(lines, "\turi strip_prefix "+rule.Path)
-		}
-		lines = append(lines, "}")
-		lines = append(lines, "")
+// addProxyRule is the user-facing action: add a reverse-proxy rule to a container.
+func addProxyRule(w http.ResponseWriter, r *http.Request, id int) {
+	c := config.FindContainer(id)
+	if c == nil {
+		jsonResponse(w, http.StatusNotFound, APIResponse{Success: false, Message: "Container not found"})
+		return
 	}
-
-	if len(lines) <= 2 {
-		lines = []string{"# No active proxy rules managed by CLICD", ""}
+	if c.ProxyRuleLimit <= 0 {
+		jsonResponse(w, http.StatusForbidden, APIResponse{Success: false, Message: "该容器未分配反代配额"})
+		return
 	}
-
-	return os.WriteFile(caddyfilePath, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
+	if len(c.ProxyRules) >= c.ProxyRuleLimit {
+		jsonResponse(w, http.StatusForbidden, APIResponse{Success: false, Message: fmt.Sprintf("反代配额已满: %d/%d", len(c.ProxyRules), c.ProxyRuleLimit)})
+		return
+	}
+	var req struct {
+		Domain     string `json:"domain"`
+		Path       string `json:"path"`
+		TargetPort int    `json:"target_port"`
+		Name       string `json:"name"`
+		TLS        bool   `json:"tls"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, http.StatusBadRequest, APIResponse{Success: false, Message: "Invalid request body"})
+		return
+	}
+	if err := validateProxyRuleFields(req.Domain, req.Path, req.TargetPort); err != nil {
+		jsonResponse(w, http.StatusBadRequest, APIResponse{Success: false, Message: err.Error()})
+		return
+	}
+	domain := strings.ToLower(strings.TrimSpace(req.Domain))
+	if proxyDomainUsedBy(c, domain, req.Path, -1) {
+		jsonResponse(w, http.StatusConflict, APIResponse{Success: false, Message: "该域名+路径已被占用"})
+		return
+	}
+	rule := config.ProxyRule{
+		ID:         proxyRuleNextID(c),
+		Domain:     domain,
+		Path:       strings.TrimSpace(req.Path),
+		TargetPort: req.TargetPort,
+		Name:       strings.TrimSpace(req.Name),
+		Enabled:    true,
+		TLS:        req.TLS,
+		CreatedAt:  time.Now().Format(time.RFC3339),
+	}
+	c.ProxyRules = append(c.ProxyRules, rule)
+	config.SaveConfig()
+	auditRequest(r, "proxy:create", fmt.Sprintf("%s(%d)", c.Name, c.ID), fmt.Sprintf("添加反代 %s%s -> :%d", domain, rule.Path, rule.TargetPort), true, "")
+	if err := writeAndReloadCaddy(); err != nil {
+		// non-fatal: rule saved, caddy may need manual reload
+		fmt.Printf("warning: caddy reload failed: %v\n", err)
+	}
+	jsonResponse(w, http.StatusOK, APIResponse{Success: true, Data: c.ProxyRules})
 }
 
-func reloadCaddy() error {
-	// Start service if not running, then reload config.
-	if out, err := exec.Command("systemctl", "start", caddyService).CombinedOutput(); err != nil {
-		// Service may not exist yet on a fresh install — ignore, Caddy may be managed elsewhere.
-		_ = out
+// updateProxyRule toggles enabled / edits fields (user-facing).
+func updateProxyRule(w http.ResponseWriter, r *http.Request, id int, idStr string) {
+	ruleID := parseIntSafe(idStr)
+	if ruleID <= 0 {
+		jsonResponse(w, http.StatusBadRequest, APIResponse{Success: false, Message: "Invalid proxy rule id"})
+		return
 	}
-	if out, err := exec.Command("systemctl", "reload", caddyService).CombinedOutput(); err != nil {
-		return fmt.Errorf("reload failed: %v, output: %s", err, string(out))
+	c := config.FindContainer(id)
+	if c == nil {
+		jsonResponse(w, http.StatusNotFound, APIResponse{Success: false, Message: "Container not found"})
+		return
 	}
-	return nil
-}
-
-// HandleProxyRules handles GET /api/proxy/rules and POST /api/proxy/rules.
-func HandleProxyRules(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		proxyRulesMu.Lock()
-		rules := make([]proxyRuleResponse, 0, len(config.AppConfig.ProxyRules))
-		for _, rule := range config.AppConfig.ProxyRules {
-			rules = append(rules, toProxyRuleResponse(rule))
-		}
-		proxyRulesMu.Unlock()
-		sort.Slice(rules, func(i, j int) bool { return rules[i].ID < rules[j].ID })
-		jsonResponse(w, http.StatusOK, APIResponse{Success: true, Data: rules})
-	case http.MethodPost:
-		if !requireScope(w, r, "proxy:write") {
+	idx := proxyRuleIndex(c, ruleID)
+	if idx < 0 {
+		jsonResponse(w, http.StatusNotFound, APIResponse{Success: false, Message: "Proxy rule not found"})
+		return
+	}
+	var req struct {
+		Domain   string `json:"domain"`
+		Path     string `json:"path"`
+		TargetPort int  `json:"target_port"`
+		Name     string `json:"name"`
+		Enabled  *bool  `json:"enabled"`
+		TLS      *bool  `json:"tls"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, http.StatusBadRequest, APIResponse{Success: false, Message: "Invalid request body"})
+		return
+	}
+	rule := c.ProxyRules[idx]
+	if req.Domain != "" {
+		domain := strings.ToLower(strings.TrimSpace(req.Domain))
+		if proxyDomainUsedBy(c, domain, req.Path, idx) {
+			jsonResponse(w, http.StatusConflict, APIResponse{Success: false, Message: "该域名+路径已被占用"})
 			return
 		}
-		var req proxyRuleCreateRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			jsonResponse(w, http.StatusBadRequest, APIResponse{Success: false, Message: "Invalid request body"})
-			return
-		}
-		if err := normalizeProxyRule(req); err != nil {
+		rule.Domain = domain
+	}
+	if req.Path != "" || req.Path == "" {
+		rule.Path = strings.TrimSpace(req.Path)
+	}
+	if req.TargetPort != 0 {
+		if err := validatePort(req.TargetPort); err != nil {
 			jsonResponse(w, http.StatusBadRequest, APIResponse{Success: false, Message: err.Error()})
 			return
 		}
-
-		proxyRulesMu.Lock()
-		rule := config.ProxyRule{
-			ID:                proxyRuleNextID(),
-			Domain:            strings.ToLower(strings.TrimSpace(req.Domain)),
-			Path:              strings.TrimSpace(req.Path),
-			TargetContainerID: req.TargetContainerID,
-			TargetPort:        req.TargetPort,
-			Name:              strings.TrimSpace(req.Name),
-			Enabled:           true,
-			TLS:               req.TLS,
-			CreatedAt:         time.Now().Format("2006-01-02T15:04:05Z07:00"),
-		}
-		config.AppConfig.ProxyRules = append(config.AppConfig.ProxyRules, rule)
-		if err := config.SaveConfig(); err != nil {
-			config.AppConfig.ProxyRules = config.AppConfig.ProxyRules[:len(config.AppConfig.ProxyRules)-1]
-			proxyRulesMu.Unlock()
-			jsonResponse(w, http.StatusInternalServerError, APIResponse{Success: false, Message: "Failed to save proxy rule"})
-			return
-		}
-		_ = writeCaddyfile()
-		_ = reloadCaddy()
-		proxyRulesMu.Unlock()
-
-		auditRequest(r, "proxy.create", rule.Domain, fmt.Sprintf("container=%d port=%d tls=%v", rule.TargetContainerID, rule.TargetPort, rule.TLS), true, "")
-		jsonResponse(w, http.StatusCreated, APIResponse{Success: true, Data: toProxyRuleResponse(rule), Message: "Proxy rule created"})
-	default:
-		jsonResponse(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Message: "Method not allowed"})
+		rule.TargetPort = req.TargetPort
 	}
+	if req.Name != "" {
+		rule.Name = strings.TrimSpace(req.Name)
+	}
+	if req.Enabled != nil {
+		rule.Enabled = *req.Enabled
+	}
+	if req.TLS != nil {
+		rule.TLS = *req.TLS
+	}
+	c.ProxyRules[idx] = rule
+	config.SaveConfig()
+	auditRequest(r, "proxy:update", fmt.Sprintf("%s(%d)", c.Name, c.ID), fmt.Sprintf("更新反代 #%d", ruleID), true, "")
+	if err := writeAndReloadCaddy(); err != nil {
+		fmt.Printf("warning: caddy reload failed: %v\n", err)
+	}
+	jsonResponse(w, http.StatusOK, APIResponse{Success: true, Data: c.ProxyRules})
 }
 
-// HandleProxyRule handles GET/PUT/DELETE /api/proxy/rules/{id}.
-func HandleProxyRule(w http.ResponseWriter, r *http.Request) {
-	idStr := proxyRuleFromPath(r.URL.Path)
-	id, err := strconv.Atoi(idStr)
-	if err != nil || id <= 0 {
-		jsonResponse(w, http.StatusBadRequest, APIResponse{Success: false, Message: "Rule ID required"})
+// deleteProxyRule removes a rule (user-facing).
+func deleteProxyRule(w http.ResponseWriter, r *http.Request, id int, idStr string) {
+	ruleID := parseIntSafe(idStr)
+	if ruleID <= 0 {
+		jsonResponse(w, http.StatusBadRequest, APIResponse{Success: false, Message: "Invalid proxy rule id"})
 		return
 	}
-
-	switch r.Method {
-	case http.MethodGet:
-		proxyRulesMu.Lock()
-		rule := proxyRuleByID(id)
-		proxyRulesMu.Unlock()
-		if rule == nil {
-			jsonResponse(w, http.StatusNotFound, APIResponse{Success: false, Message: "Proxy rule not found"})
-			return
-		}
-		jsonResponse(w, http.StatusOK, APIResponse{Success: true, Data: toProxyRuleResponse(*rule)})
-
-	case http.MethodPut:
-		if !requireScope(w, r, "proxy:write") {
-			return
-		}
-		var req proxyRuleUpdateRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			jsonResponse(w, http.StatusBadRequest, APIResponse{Success: false, Message: "Invalid request body"})
-			return
-		}
-
-		proxyRulesMu.Lock()
-		rule := proxyRuleByID(id)
-		if rule == nil {
-			proxyRulesMu.Unlock()
-			jsonResponse(w, http.StatusNotFound, APIResponse{Success: false, Message: "Proxy rule not found"})
-			return
-		}
-		if req.Domain != "" {
-			rule.Domain = strings.ToLower(strings.TrimSpace(req.Domain))
-		}
-		if req.Path != "" {
-			rule.Path = strings.TrimSpace(req.Path)
-		}
-		if req.TargetContainerID != 0 {
-			c := config.FindContainer(req.TargetContainerID)
-			if c == nil || c.IP == "" {
-				proxyRulesMu.Unlock()
-				jsonResponse(w, http.StatusBadRequest, APIResponse{Success: false, Message: "Target container not found or has no IP"})
-				return
-			}
-			rule.TargetContainerID = req.TargetContainerID
-		}
-		if req.TargetPort != 0 {
-			if req.TargetPort <= 0 || req.TargetPort > 65535 {
-				proxyRulesMu.Unlock()
-				jsonResponse(w, http.StatusBadRequest, APIResponse{Success: false, Message: "target_port must be between 1 and 65535"})
-				return
-			}
-			rule.TargetPort = req.TargetPort
-		}
-		if req.Name != "" {
-			rule.Name = strings.TrimSpace(req.Name)
-		}
-		if req.Enabled != nil {
-			rule.Enabled = *req.Enabled
-		}
-		if req.TLS != nil {
-			rule.TLS = *req.TLS
-		}
-
-		// replace the entry in place
-		for i := range config.AppConfig.ProxyRules {
-			if config.AppConfig.ProxyRules[i].ID == id {
-				config.AppConfig.ProxyRules[i] = *rule
-				break
-			}
-		}
-		if err := config.SaveConfig(); err != nil {
-			proxyRulesMu.Unlock()
-			jsonResponse(w, http.StatusInternalServerError, APIResponse{Success: false, Message: "Failed to save proxy rule"})
-			return
-		}
-		_ = writeCaddyfile()
-		_ = reloadCaddy()
-		proxyRulesMu.Unlock()
-
-		auditRequest(r, "proxy.update", rule.Domain, fmt.Sprintf("id=%d tls=%v enabled=%v", id, rule.TLS, rule.Enabled), true, "")
-		jsonResponse(w, http.StatusOK, APIResponse{Success: true, Data: toProxyRuleResponse(*rule), Message: "Proxy rule updated"})
-
-	case http.MethodDelete:
-		if !requireScope(w, r, "proxy:write") {
-			return
-		}
-		proxyRulesMu.Lock()
-		rule := proxyRuleByID(id)
-		if rule == nil {
-			proxyRulesMu.Unlock()
-			jsonResponse(w, http.StatusNotFound, APIResponse{Success: false, Message: "Proxy rule not found"})
-			return
-		}
-		domain := rule.Domain
-		idx := -1
-		for i := range config.AppConfig.ProxyRules {
-			if config.AppConfig.ProxyRules[i].ID == id {
-				idx = i
-				break
-			}
-		}
-		if idx >= 0 {
-			config.AppConfig.ProxyRules = append(config.AppConfig.ProxyRules[:idx], config.AppConfig.ProxyRules[idx+1:]...)
-		}
-		if err := config.SaveConfig(); err != nil {
-			proxyRulesMu.Unlock()
-			jsonResponse(w, http.StatusInternalServerError, APIResponse{Success: false, Message: "Failed to delete proxy rule"})
-			return
-		}
-		_ = writeCaddyfile()
-		_ = reloadCaddy()
-		proxyRulesMu.Unlock()
-
-		auditRequest(r, "proxy.delete", domain, fmt.Sprintf("id=%d", id), true, "")
-		jsonResponse(w, http.StatusOK, APIResponse{Success: true, Message: "Proxy rule deleted"})
-
-	default:
-		jsonResponse(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Message: "Method not allowed"})
+	c := config.FindContainer(id)
+	if c == nil {
+		jsonResponse(w, http.StatusNotFound, APIResponse{Success: false, Message: "Container not found"})
+		return
 	}
+	idx := proxyRuleIndex(c, ruleID)
+	if idx < 0 {
+		jsonResponse(w, http.StatusNotFound, APIResponse{Success: false, Message: "Proxy rule not found"})
+		return
+	}
+	c.ProxyRules = append(c.ProxyRules[:idx], c.ProxyRules[idx+1:]...)
+	config.SaveConfig()
+	auditRequest(r, "proxy:delete", fmt.Sprintf("%s(%d)", c.Name, c.ID), fmt.Sprintf("删除反代 #%d", ruleID), true, "")
+	if err := writeAndReloadCaddy(); err != nil {
+		fmt.Printf("warning: caddy reload failed: %v\n", err)
+	}
+	jsonResponse(w, http.StatusOK, APIResponse{Success: true, Data: c.ProxyRules})
+}
+
+// ----- helpers -----
+
+func validateProxyRuleFields(domain, path string, port int) error {
+	domain = strings.TrimSpace(domain)
+	if domain == "" {
+		return fmt.Errorf("domain is required")
+	}
+	if len(domain) > 253 {
+		return fmt.Errorf("domain too long")
+	}
+	if path != "" && !strings.HasPrefix(path, "/") {
+		return fmt.Errorf("path must start with /")
+	}
+	return validatePort(port)
+}
+
+func validatePort(port int) error {
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("target_port must be 1-65535")
+	}
+	return nil
+}
+
+// proxyDomainUsedBy reports whether another rule in the same container already binds domain+path.
+func proxyDomainUsedBy(c *config.Container, domain, path string, excludeIdx int) bool {
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	path = strings.TrimSpace(path)
+	for i, r := range c.ProxyRules {
+		if i == excludeIdx {
+			continue
+		}
+		if strings.EqualFold(r.Domain, domain) && strings.TrimSpace(r.Path) == path {
+			return true
+		}
+	}
+	return false
+}
+
+func parseIntSafe(s string) int {
+	n := 0
+	for _, ch := range strings.TrimSpace(s) {
+		if ch < '0' || ch > '9' {
+			return 0
+		}
+		n = n*10 + int(ch-'0')
+	}
+	return n
+}
+
+// writeAndReloadCaddy regenerates /etc/caddy/Caddyfile from every container's enabled
+// proxy rules and reloads the caddy service. Errors are returned but non-fatal.
+func writeAndReloadCaddy() error {
+	var b strings.Builder
+	hasRules := false
+	for _, c := range config.AppConfig.Containers {
+		for _, r := range c.ProxyRules {
+			if !r.Enabled || c.IP == "" {
+				continue
+			}
+			hasRules = true
+			scheme := "http://"
+			if r.TLS {
+				scheme = "https://"
+			}
+			b.WriteString(r.Domain + " {\n")
+			if r.Path != "" {
+				b.WriteString("\thandle " + r.Path + " {\n")
+				b.WriteString("\t\treverse_proxy " + scheme + c.IP + ":" + fmt.Sprintf("%d", r.TargetPort) + "\n")
+				b.WriteString("\t}\n")
+			} else {
+				b.WriteString("\treverse_proxy " + scheme + c.IP + ":" + fmt.Sprintf("%d", r.TargetPort) + "\n")
+			}
+			if r.TLS {
+				// Let Caddy manage ACME automatically (default).
+			}
+			b.WriteString("}\n\n")
+		}
+	}
+	// If caddy isn't installed we cannot write — skip silently.
+	if _, err := exec.LookPath("caddy"); err != nil {
+		return nil
+	}
+	content := b.String()
+	if !hasRules {
+		content = "# no proxy rules\n"
+	}
+	if err := os.WriteFile(caddyfilePath, []byte(content), 0644); err != nil {
+		return fmt.Errorf("write Caddyfile: %w", err)
+	}
+	// ensure caddy is running, then reload
+	_ = exec.Command("systemctl", "start", caddyService).Run()
+	if err := exec.Command("systemctl", "reload", caddyService).Run(); err != nil {
+		return fmt.Errorf("reload caddy: %w", err)
+	}
+	return nil
 }

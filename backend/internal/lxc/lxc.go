@@ -251,6 +251,7 @@ type ContainerConfig struct {
 	NATPortMappings      []config.PortMapping       `json:"nat_port_mappings,omitempty"`
 	ManagementPort       int                        `json:"management_port,omitempty"`
 	PortMappingCount     int                        `json:"port_mapping_count"`
+	ProxyRuleCount       int                        `json:"proxy_rule_count"`
 	AssignNAT            *bool                      `json:"assign_nat,omitempty"`
 	LANIPv4Mode          string                     `json:"lan_ipv4_mode,omitempty"`
 	LANInterface         string                     `json:"lan_interface,omitempty"`
@@ -730,6 +731,7 @@ func (m *Manager) CreateContainer(cfg ContainerConfig) error {
 		SSHPassword:          sshPassword,
 		PortMappings:         portMappings,
 		PortMappingLimit:     cfg.PortMappingCount,
+		ProxyRuleLimit:       cfg.ProxyRuleCount,
 		AllowedImageIDs:      append([]string(nil), cfg.AllowedImageIDs...),
 		ImageLimitConfigured: cfg.ImageLimitConfigured,
 		SnapshotLimit:        config.NormalizeSnapshotLimit(cfg.SnapshotLimit),

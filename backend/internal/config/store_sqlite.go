@@ -631,9 +631,6 @@ func loadConfigFromDB() (*ClicdConfig, bool, error) {
 	if raw := strings.TrimSpace(meta["panel_access_policy"]); raw != "" {
 		_ = json.Unmarshal([]byte(raw), &cfg.PanelAccessPolicy)
 	}
-	if raw := strings.TrimSpace(meta["proxy_rules"]); raw != "" {
-		_ = json.Unmarshal([]byte(raw), &cfg.ProxyRules)
-	}
 	if raw := strings.TrimSpace(meta["storage_pools"]); raw != "" {
 		_ = json.Unmarshal([]byte(raw), &cfg.StoragePools)
 	}
@@ -744,7 +741,6 @@ func saveMeta(tx *sql.Tx) error {
 	publicIPv6PrefixesJSON, _ := json.Marshal(AppConfig.PublicIPv6Prefixes)
 	webSSHAllowedOriginsJSON, _ := json.Marshal(AppConfig.WebSSHAllowedOrigins)
 	panelAccessPolicyJSON, _ := json.Marshal(AppConfig.PanelAccessPolicy)
-	proxyRulesJSON, _ := json.Marshal(AppConfig.ProxyRules)
 	storagePoolsJSON, _ := json.Marshal(AppConfig.StoragePools)
 	customKVMImagesJSON, _ := json.Marshal(AppConfig.CustomKVMImages)
 	customLXCImagesJSON, _ := json.Marshal(AppConfig.CustomLXCImages)
@@ -771,7 +767,6 @@ func saveMeta(tx *sql.Tx) error {
 		"public_ipv6_prefixes":   string(publicIPv6PrefixesJSON),
 		"webssh_allowed_origins": string(webSSHAllowedOriginsJSON),
 		"panel_access_policy":    string(panelAccessPolicyJSON),
-		"proxy_rules":            string(proxyRulesJSON),
 		"storage_pools":          string(storagePoolsJSON),
 		"custom_kvm_images":      string(customKVMImagesJSON),
 		"custom_lxc_images":      string(customLXCImagesJSON),

@@ -25,6 +25,7 @@ import {
   Trash2,
   UserPlus,
   X,
+  Globe,
 } from 'lucide-react'
 import {
   default as api,
@@ -74,6 +75,12 @@ import {
   updateResourceLimit,
   updatePortMapping,
   SubUser,
+  getProxyRules,
+  addProxyRule,
+  updateProxyRule,
+  deleteProxyRule,
+  ProxyRule,
+  ProxyRuleCreate,
 } from '../services/api'
 import { useDialog } from '../components/Dialog'
 import { useAuth } from '../contexts/AuthContext'
@@ -153,6 +160,18 @@ export default function ContainerDetail() {
   const [ipv6AssignCount, setIPv6AssignCount] = useState(1)
   const [ipv6DraftText, setIPv6DraftText] = useState('')
   const [showMappingEditor, setShowMappingEditor] = useState(false)
+  const [showProxy, setShowProxy] = useState(false)
+  const [showProxyEditor, setShowProxyEditor] = useState(false)
+  const [proxyDraft, setProxyDraft] = useState<ProxyRuleCreate>({
+    domain: '',
+    path: '',
+    target_port: 80,
+    name: '',
+    tls: true,
+  })
+  const [proxyRules, setProxyRules] = useState<ProxyRule[]>([])
+  const [proxyLimit, setProxyLimit] = useState(0)
+  const [savingProxy, setSavingProxy] = useState(false)
   const [showExpiryEdit, setShowExpiryEdit] = useState(false)
   const [editExpiry, setEditExpiry] = useState('')
   const [savingExpiry, setSavingExpiry] = useState(false)
@@ -230,6 +249,21 @@ export default function ContainerDetail() {
       console.error('Failed to fetch snapshots:', err)
     }
   }, [containerIdentifier, container?.snapshot_limit])
+
+  const fetchProxyRules = useCallback(async () => {
+    if (!containerIdentifier) return
+    try {
+      setSavingProxy(true)
+      const res = await getProxyRules(containerIdentifier)
+      const d = res.data.data
+      setProxyRules(d?.rules || [])
+      setProxyLimit(d?.limit || 0)
+    } catch (err) {
+      console.error('Failed to fetch proxy rules:', err)
+    } finally {
+      setSavingProxy(false)
+    }
+  }, [containerIdentifier])
 
   const fetchStorage = useCallback(async () => {
     if (isSubUser) {
@@ -326,6 +360,12 @@ export default function ContainerDetail() {
       fetchStorage()
     }
   }, [showSnapshots, fetchSnapshots, fetchStorage])
+
+  useEffect(() => {
+    if (showProxy) {
+      fetchProxyRules()
+    }
+  }, [showProxy, fetchProxyRules])
 
   // Poll task status for this container
   useEffect(() => {
@@ -798,6 +838,81 @@ export default function ContainerDetail() {
     }
   }
 
+  const openAddProxy = () => {
+    if (isSubUser && container?.policy_blocked) return
+    if (proxyLimit > 0 && proxyRules.length >= proxyLimit) {
+      dialog.alert('反代配额已满', '已达到管理员分配的反代配额。')
+      return
+    }
+    setProxyDraft({ domain: '', path: '', target_port: 80, name: '', tls: true })
+    setShowProxyEditor(true)
+  }
+
+  const submitProxy = async (): Promise<boolean> => {
+    if (!containerIdentifier) return false
+    if (!(await ensureSubUserCanOperate())) return false
+    const domain = (proxyDraft.domain || '').trim().toLowerCase()
+    if (!domain) {
+      dialog.alert('输入错误', '请输入域名')
+      return false
+    }
+    const port = Number(proxyDraft.target_port)
+    if (!port || port < 1 || port > 65535) {
+      dialog.alert('输入错误', '请输入 1-65535 的容器端口')
+      return false
+    }
+    const payload: ProxyRuleCreate = {
+      domain,
+      path: (proxyDraft.path || '').trim(),
+      target_port: port,
+      name: (proxyDraft.name || '').trim(),
+      tls: !!proxyDraft.tls,
+    }
+    setSavingProxy(true)
+    try {
+      const res = await addProxyRule(containerIdentifier, payload)
+      if (res.data.data) setProxyRules(res.data.data)
+      await fetchContainer()
+      setShowProxyEditor(false)
+      return true
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { message?: string } } }
+      dialog.alert('操作失败', error.response?.data?.message || '保存反代规则失败')
+      return false
+    } finally {
+      setSavingProxy(false)
+    }
+  }
+
+  const toggleProxy = async (rule: ProxyRule) => {
+    if (!containerIdentifier || !(await ensureSubUserCanOperate())) return
+    setSavingProxy(true)
+    try {
+      const res = await updateProxyRule(containerIdentifier, rule.id, { enabled: !rule.enabled })
+      if (res.data.data) setProxyRules(res.data.data)
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { message?: string } } }
+      dialog.alert('操作失败', error.response?.data?.message || '更新反代规则失败')
+    } finally {
+      setSavingProxy(false)
+    }
+  }
+
+  const removeProxy = async (rule: ProxyRule) => {
+    if (!containerIdentifier || !(await dialog.confirm('删除反代规则', `确定要删除 ${rule.domain}${rule.path || ''} 的反代规则吗？`))) return
+    if (!(await ensureSubUserCanOperate())) return
+    setSavingProxy(true)
+    try {
+      const res = await deleteProxyRule(containerIdentifier, rule.id)
+      if (res.data.data) setProxyRules(res.data.data)
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { message?: string } } }
+      dialog.alert('操作失败', error.response?.data?.message || '删除反代规则失败')
+    } finally {
+      setSavingProxy(false)
+    }
+  }
+
   const handleCreateSnapshot = async () => {
     if (!containerIdentifier) return
     if (!(await ensureSubUserCanOperate())) return
@@ -1163,6 +1278,10 @@ export default function ContainerDetail() {
             <ActionButton onClick={openFirewall} disabled={isSubUserPolicyBlocked}>
               <FirewallIcon className="w-3.5 h-3.5" />
               防火墙
+            </ActionButton>
+            <ActionButton onClick={() => setShowProxy(true)} disabled={isSubUserPolicyBlocked}>
+              <Globe className="w-3.5 h-3.5" />
+              反向代理
             </ActionButton>
             <ActionButton onClick={() => setShowSnapshots(true)} disabled={!!taskStatus || !!snapshotBusy || isSubUserPolicyBlocked}>
               <Camera className="w-3.5 h-3.5" />
@@ -2031,6 +2150,143 @@ export default function ContainerDetail() {
               <Save className="h-4 w-4" />
               {savingIPAssign ? '保存中...' : '保存'}
             </button>
+          </div>
+        </Modal>
+      )}
+
+      {showProxy && (
+        <Modal title="反向代理" onClose={() => { setShowProxy(false); setShowProxyEditor(false) }} wide extra={
+          !isSubUser && proxyLimit > 0 && proxyRules.length < proxyLimit && (
+            <button onClick={openAddProxy} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-black text-white rounded-md text-xs hover:bg-gray-800">
+              <Plus className="w-3.5 h-3.5" />添加规则
+            </button>
+          )
+        }>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-4">
+              <div className="text-xs text-gray-500">
+                {proxyLimit > 0 ? (
+                  <>反代配额：<span className="font-mono text-gray-800">{proxyRules.length}/{proxyLimit}</span></>
+                ) : (
+                  <span>未分配反代配额（请联系管理员在容器配置中设置）</span>
+                )}
+              </div>
+            </div>
+            {proxyRules.length === 0 ? (
+              <p className="text-sm text-gray-400">暂无反代规则</p>
+            ) : (
+              <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200 bg-gray-50 text-left text-xs text-gray-500 dark:border-gray-700 dark:bg-gray-800">
+                      <th className="px-3 py-2">域名</th>
+                      <th className="px-3 py-2">路径</th>
+                      <th className="px-3 py-2">容器端口</th>
+                      <th className="px-3 py-2">HTTPS</th>
+                      <th className="px-3 py-2">状态</th>
+                      <th className="px-3 py-2 text-right">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {proxyRules.map((r) => (
+                      <tr key={r.id} className="border-b border-gray-100 last:border-0 dark:border-gray-800">
+                        <td className="px-3 py-2 font-mono text-gray-800 dark:text-gray-200">{r.domain}</td>
+                        <td className="px-3 py-2 font-mono text-gray-500">{r.path || '/'}</td>
+                        <td className="px-3 py-2 font-mono">{r.target_port}</td>
+                        <td className="px-3 py-2">{r.tls ? <span className="text-green-600">是</span> : <span className="text-gray-400">否</span>}</td>
+                        <td className="px-3 py-2">
+                          <button
+                            onClick={() => toggleProxy(r)}
+                            disabled={savingProxy}
+                            className={`relative h-5 w-9 rounded-full transition-colors ${r.enabled ? 'bg-black dark:bg-white' : 'bg-gray-300 dark:bg-gray-600'}`}
+                            aria-label={r.enabled ? '禁用' : '启用'}
+                          >
+                            <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${r.enabled ? 'left-[18px]' : 'left-0.5'}`} />
+                          </button>
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <button
+                            onClick={() => removeProxy(r)}
+                            disabled={savingProxy || isSubUser}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-red-600 hover:bg-red-50 disabled:opacity-40"
+                          >
+                            <Trash2 className="w-3 h-3" />删除
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {proxyLimit === 0 && (
+              <p className="text-xs text-gray-400">管理员未分配反代配额。反代规则会在主机 Caddy 中生成，域名需解析到主机 IP 才能完成 Let&apos;s Encrypt 证书签发。</p>
+            )}
+          </div>
+        </Modal>
+      )}
+
+      {showProxyEditor && (
+        <Modal title="添加反代规则" onClose={() => setShowProxyEditor(false)}>
+          <div className="space-y-4">
+            <Field label="域名" hint="例如 app.example.com 或 www.example.com，需解析到主机 IP">
+              <input
+                value={proxyDraft.domain}
+                onChange={(e) => setProxyDraft({ ...proxyDraft, domain: e.target.value })}
+                placeholder="app.example.com"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800"
+              />
+            </Field>
+            <Field label="路径（可选）" hint="留空代理整个域名；填写则以 / 开头，例如 /api">
+              <input
+                value={proxyDraft.path || ''}
+                onChange={(e) => setProxyDraft({ ...proxyDraft, path: e.target.value })}
+                placeholder="/api"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800"
+              />
+            </Field>
+            <Field label="容器端口" hint="容器内实际监听的端口">
+              <input
+                type="number"
+                min={1}
+                max={65535}
+                value={proxyDraft.target_port}
+                onChange={(e) => setProxyDraft({ ...proxyDraft, target_port: Number(e.target.value) })}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800"
+              />
+            </Field>
+            <Field label="备注（可选）">
+              <input
+                value={proxyDraft.name || ''}
+                onChange={(e) => setProxyDraft({ ...proxyDraft, name: e.target.value })}
+                placeholder="例如 官网后端"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800"
+              />
+            </Field>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={!!proxyDraft.tls}
+                onChange={(e) => setProxyDraft({ ...proxyDraft, tls: e.target.checked })}
+                className="h-4 w-4"
+              />
+              启用 HTTPS（自动签发 Let&apos;s Encrypt 证书）
+            </label>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => setShowProxyEditor(false)}
+                className="px-4 py-2 rounded-md text-sm text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800"
+              >
+                取消
+              </button>
+              <button
+                onClick={submitProxy}
+                disabled={savingProxy}
+                className="px-4 py-2 rounded-md bg-black text-white text-sm hover:bg-gray-800 disabled:opacity-50"
+              >
+                {savingProxy ? '保存中…' : '保存'}
+              </button>
+            </div>
           </div>
         </Modal>
       )}
