@@ -25,6 +25,21 @@ type PortMapping struct {
 	Description   string `json:"description"`
 }
 
+// ProxyRule is a reverse-proxy rule managed by Caddy.
+// It maps a public domain (optionally a path prefix) to a port inside an LXC container.
+// Caddy terminates TLS automatically via Let's Encrypt when TLS is enabled.
+type ProxyRule struct {
+	ID                int    `json:"id"`
+	Domain            string `json:"domain"`            // e.g. app.example.com or *.example.com
+	Path              string `json:"path,omitempty"`    // e.g. "/api"; empty = the whole site
+	TargetContainerID int    `json:"target_container_id"`
+	TargetPort        int    `json:"target_port"`       // port listening inside the container
+	Name              string `json:"name,omitempty"`
+	Enabled           bool   `json:"enabled"`
+	TLS               bool   `json:"tls"`               // true = HTTPS + Let's Encrypt; false = HTTP only
+	CreatedAt         string `json:"created_at"`
+}
+
 type FirewallRule struct {
 	ID          string `json:"id"`
 	Network     string `json:"network,omitempty"` // "ipv4", "ipv6", or "all"; empty defaults to "ipv4"
@@ -811,6 +826,7 @@ type ClicdConfig struct {
 	PublicIPv6Prefixes   []PublicIPv6Prefix     `json:"public_ipv6_prefixes"`
 	WebSSHAllowedOrigins []string               `json:"webssh_allowed_origins"`
 	PanelAccessPolicy    PanelAccessPolicy      `json:"panel_access_policy"`
+	ProxyRules           []ProxyRule            `json:"proxy_rules"`
 	SecurityAutoShutdown bool                   `json:"security_auto_shutdown"`
 	TaskConcurrency      int                    `json:"task_concurrency"`
 	Language             string                 `json:"language"`

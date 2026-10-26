@@ -568,6 +568,41 @@ export const getPanelAccessPolicy = () =>
 export const updatePanelAccessPolicy = (data: Pick<PanelAccessPolicy, 'enabled' | 'allowed_sources' | 'trusted_proxies'>) =>
   api.put<APIResponse<PanelAccessPolicy>>('/access-policy', data)
 
+// Reverse proxy rules (Caddy)
+export interface ProxyRule {
+  id: number
+  domain: string
+  path?: string
+  target_container_id: number
+  target_container?: string
+  target_port: number
+  name?: string
+  enabled: boolean
+  tls: boolean
+  created_at: string
+}
+
+export interface ProxyRuleCreate {
+  domain: string
+  path?: string
+  target_container_id: number
+  target_port: number
+  name?: string
+  tls: boolean
+}
+
+export const getProxyRules = () =>
+  api.get<APIResponse<ProxyRule[]>>('/proxy/rules')
+
+export const createProxyRule = (data: ProxyRuleCreate) =>
+  api.post<APIResponse<ProxyRule>>('/proxy/rules', data)
+
+export const updateProxyRule = (id: number, data: Partial<ProxyRuleCreate> & { enabled?: boolean }) =>
+  api.put<APIResponse<ProxyRule>>(`/proxy/rules/${id}`, data)
+
+export const deleteProxyRule = (id: number) =>
+  api.delete<APIResponse>(`/proxy/rules/${id}`)
+
 // Containers
 export const getContainers = () =>
   api.get<APIResponse<Container[]>>('/containers')

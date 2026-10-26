@@ -1108,7 +1108,7 @@ install_apk() {
         warn_kvm_unsupported_arch
     fi
 
-    for pkg in lxcfs shadow conntrack-tools quota-tools e2fsprogs xfsprogs cloud-utils genisoimage xorriso smartmontools "$(qemu_efi_package_apk)"; do
+    for pkg in lxcfs shadow conntrack-tools quota-tools e2fsprogs xfsprogs cloud-utils genisoimage xorriso smartmontools caddy "$(qemu_efi_package_apk)"; do
         apk add --no-cache "$pkg" >/dev/null 2>&1 || warn "可选依赖未安装：$pkg"
     done
 }
@@ -1172,6 +1172,9 @@ install_apt() {
         warn_kvm_unsupported_arch
         apt_get install -y qemu-utils genisoimage xorriso smartmontools >/dev/null 2>&1 || true
     fi
+
+    # Caddy 引擎：反向代理与自动 HTTPS。可选依赖，缺失不影响面板安装。
+    apt_get install -y caddy >/dev/null 2>&1 || warn "未安装 caddy，反向代理功能需要 caddy。"
 }
 
 enable_el_repos() {
@@ -1226,7 +1229,7 @@ install_dnf() {
         dnf install -y qemu-img genisoimage >/dev/null 2>&1 || true
     fi
 
-    for pkg in lxcfs xorriso "$(qemu_efi_package_rpm)" smartmontools; do
+    for pkg in lxcfs xorriso "$(qemu_efi_package_rpm)" smartmontools caddy; do
         dnf install -y "$pkg" >/dev/null 2>&1 || warn "可选依赖未安装：$pkg"
     done
 }
@@ -1270,7 +1273,7 @@ install_yum() {
         yum install -y qemu-img genisoimage >/dev/null 2>&1 || true
     fi
 
-    for pkg in lxcfs xorriso "$(qemu_efi_package_rpm)" smartmontools; do
+    for pkg in lxcfs xorriso "$(qemu_efi_package_rpm)" smartmontools caddy; do
         yum install -y "$pkg" >/dev/null 2>&1 || warn "可选依赖未安装：$pkg"
     done
 }
